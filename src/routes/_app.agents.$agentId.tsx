@@ -43,32 +43,81 @@ interface LLMSetting {
   updated_at: string | null;
 }
 
+interface AgentExtras {
+  status: string;
+  workflow: keyof typeof WORKFLOW_LABEL;
+  language: string;
+  version: string;
+  lastTrained: string;
+  persistence: number;
+  callWindow: string;
+  retryPolicy: string;
+  goal: string;
+  flow: any[];
+  knowledge: any[];
+  objections: any[];
+  intents: any[];
+  guardrails: any[];
+  escalation: any[];
+  metrics: { calls: number; connectRate: number; intentAccuracy: number; bookingRate: number };
+  openingLine: string;
+}
+
+const DEFAULT_EXTRAS: AgentExtras = {
+  status: "draft",
+  workflow: Object.keys(WORKFLOW_LABEL)[0] as keyof typeof WORKFLOW_LABEL,
+  language: "Hindi",
+  version: "v1.0",
+  lastTrained: "—",
+  persistence: 50,
+  callWindow: "9:00 AM – 7:00 PM",
+  retryPolicy: "Retry once after 2 hours",
+  goal: "Not yet configured",
+  flow: [],
+  knowledge: [],
+  objections: [],
+  intents: [],
+  guardrails: [],
+  escalation: [],
+  metrics: { calls: 0, connectRate: 0, intentAccuracy: 0, bookingRate: 0 },
+  openingLine: "",
+};
+
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
 export const Route = createFileRoute("/_app/agents/$agentId")({
   loader: async ({ params }) => {
-    const agent = getAgent(params.agentId);
-    if (!agent) throw notFound();
+    const [settingRes, voicesRes] = await Promise.all([
+      fetch(`${API_BASE}/api/llm-settings/${params.agentId}/`),
+      fetch(`${API_BASE}/api/tts-voices/`),
+    ]);
 
-    try {
-      const [settingRes, voicesRes] = await Promise.all([
-        fetch(`${API_BASE}/api/llm-settings/${params.agentId}/`),
-        fetch(`${API_BASE}/api/tts-voices/`),
-      ]);
-      if (!settingRes.ok) throw new Error(`settings ${settingRes.status}`);
-      const { setting }: { setting: LLMSetting } = await settingRes.json();
-      const voices: TTSVoice[] = voicesRes.ok ? (await voicesRes.json()).voices : [];
-
-      return {
-        agent: { ...agent, name: setting.segment.name, description: setting.segment.description },
-        setting,
-        voices,
-      };
-    } catch (e) {
-      console.error("Failed to fetch agent settings:", e);
-      throw notFound(); // or fall back to a mock LLMSetting shape if you want the page to still render
+    if (!settingRes.ok) {
+      console.error(`llm-settings fetch failed: ${settingRes.status} for agentId=${params.agentId}`);
+      throw notFound();
     }
+
+    const { setting }: { setting: LLMSetting } = await settingRes.json();
+    const voices: TTSVoice[] = voicesRes.ok ? (await voicesRes.json()).voices : [];
+
+    const mockExtras = getAgent(params.agentId) ?? DEFAULT_EXTRAS;
+
+    return {
+      agent: {
+        ...mockExtras,
+        name: setting.segment.name,
+        description: setting.segment.description,
+      },
+      setting,
+      voices,
+    };
   },
+  notFoundComponent: () => (
+    <div className="p-8 text-center space-y-3">
+      <p className="text-muted-foreground">This agent couldn't be found.</p>
+      <Link to="/agents" className="text-primary font-medium hover:underline">← Back to agents</Link>
+    </div>
+  ),
   head: ({ loaderData }) => {
     const name = loaderData?.agent.name ?? "Agent";
     return {
