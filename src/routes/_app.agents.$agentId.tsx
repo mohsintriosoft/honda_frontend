@@ -15,11 +15,59 @@ import { Progress } from "@/components/ui/progress";
 import { ArrowLeft, Save, Sparkles } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 
+interface TTSVoice {
+  id: number;
+  voice_name: string;
+  gender: string;
+  provider_id: number | string;
+  provider_name: string;
+  is_active: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+interface LLMSetting {
+  id: number;
+  segment: { id: number; slug: string; name: string; description: string; created_at: string | null; updated_at: string | null };
+  persona_name: string;
+  opening_line: string;
+  system_prompt: string;
+  behaviour: string | null;
+  voice: TTSVoice;
+  tone: number;
+  pace: number;
+  barge_in_threshold: number;
+  max_turns: number;
+  allow_customer_barge_in: boolean;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
 export const Route = createFileRoute("/_app/agents/$agentId")({
-  loader: ({ params }) => {
+  loader: async ({ params }) => {
     const agent = getAgent(params.agentId);
     if (!agent) throw notFound();
-    return { agent };
+
+    try {
+      const [settingRes, voicesRes] = await Promise.all([
+        fetch(`${API_BASE}/api/llm-settings/${params.agentId}/`),
+        fetch(`${API_BASE}/api/tts-voices/`),
+      ]);
+      if (!settingRes.ok) throw new Error(`settings ${settingRes.status}`);
+      const { setting }: { setting: LLMSetting } = await settingRes.json();
+      const voices: TTSVoice[] = voicesRes.ok ? (await voicesRes.json()).voices : [];
+
+      return {
+        agent: { ...agent, name: setting.segment.name, description: setting.segment.description },
+        setting,
+        voices,
+      };
+    } catch (e) {
+      console.error("Failed to fetch agent settings:", e);
+      throw notFound(); // or fall back to a mock LLMSetting shape if you want the page to still render
+    }
   },
   head: ({ loaderData }) => {
     const name = loaderData?.agent.name ?? "Agent";
@@ -36,11 +84,22 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
 });
 
 function AgentDetail() {
-  const { agent } = Route.useLoaderData();
-  const [tone, setTone] = useState(agent.tone);
-  const [pace, setPace] = useState(agent.pace);
-  const [persistence, setPersistence] = useState(agent.persistence);
+  const { agent, setting, voices } = Route.useLoaderData();
+
+  const [personaName, setPersonaName] = useState(setting.persona_name);
+  const [voiceId, setVoiceId] = useState(setting.voice.id);
+  const [openingLine, setOpeningLine] = useState(setting.opening_line);
+  const [systemPrompt, setSystemPrompt] = useState(setting.system_prompt);
+
+  const [tone, setTone] = useState(setting.tone);
+  const [pace, setPace] = useState(setting.pace);
+  const [persistence, setPersistence] = useState(agent.persistence); // mock-only, no backend field
+  const [maxTurns, setMaxTurns] = useState(setting.max_turns);
+  const [allowInterrupt, setAllowInterrupt] = useState(setting.allow_customer_barge_in);
+
   const [testInput, setTestInput] = useState("");
+
+  const selectedVoice = voices.find((v) => v.id === voiceId) ?? setting.voice;
 
   return (
     <>
@@ -52,7 +111,27 @@ function AgentDetail() {
             <Button variant="outline" size="sm" asChild>
               <Link to="/agents"><ArrowLeft className="size-4" /> Back</Link>
             </Button>
-            <Button size="sm"><Save className="size-4" /> Save changes</Button>
+            <Button
+              size="sm"
+              onClick={async () => {
+                await fetch(`${API_BASE}/api/llm-settings/${setting.segment.slug}/`, {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    persona_name: personaName,
+                    voice_id: voiceId,
+                    opening_line: openingLine,
+                    system_prompt: systemPrompt,
+                    tone,
+                    pace,
+                    max_turns: maxTurns,
+                    allow_customer_barge_in: allowInterrupt,
+                  }),
+                });
+              }}
+            >
+              <Save className="size-4" /> Save changes
+            </Button>
           </div>
         }
       />
@@ -102,25 +181,33 @@ function AgentDetail() {
               <CardContent className="space-y-4">
                 <div className="space-y-1.5">
                   <Label>Persona name</Label>
-                  <Input defaultValue={agent.persona} />
+                  <Input value={personaName} onChange={(e) => setPersonaName(e.target.value)} />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label>Voice</Label>
-                    <Input defaultValue={agent.voice} />
+                    <select
+                      className="w-full h-9 rounded-md border px-3 text-sm"
+                      value={voiceId}
+                      onChange={(e) => setVoiceId(Number(e.target.value))}
+                    >
+                      {voices.map((v) => (
+                        <option key={v.id} value={v.id}>{v.voice_name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div className="space-y-1.5">
                     <Label>Gender</Label>
-                    <Input defaultValue={agent.gender} />
+                    <Input value={selectedVoice.gender} disabled />
                   </div>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Opening line</Label>
-                  <Textarea rows={3} defaultValue={agent.openingLine} />
+                  <Textarea rows={3} value={openingLine} onChange={(e) => setOpeningLine(e.target.value)} />
                 </div>
                 <div className="space-y-1.5">
                   <Label>System prompt</Label>
-                  <Textarea rows={7} defaultValue={agent.systemPrompt} />
+                  <Textarea rows={7} value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} />
                 </div>
               </CardContent>
             </Card>
@@ -144,7 +231,11 @@ function AgentDetail() {
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div className="space-y-1.5">
                     <Label>Max turns</Label>
-                    <Input defaultValue={agent.maxTurns} />
+                    <Input
+                      type="number"
+                      value={maxTurns}
+                      onChange={(e) => setMaxTurns(Number(e.target.value))}
+                    />
                   </div>
                   <div className="space-y-1.5">
                     <Label>Call window</Label>
@@ -160,7 +251,7 @@ function AgentDetail() {
                     <div className="text-sm font-medium">Interruptible</div>
                     <div className="text-xs text-muted-foreground">Customer can barge in mid-sentence</div>
                   </div>
-                  <Switch defaultChecked={agent.interruptible} />
+                  <Switch checked={allowInterrupt} onCheckedChange={setAllowInterrupt} />
                 </div>
               </CardContent>
             </Card>

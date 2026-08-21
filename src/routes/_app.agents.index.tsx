@@ -1,6 +1,6 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { PageHeader } from "@/components/layout/AppShell";
-import { agents, WORKFLOW_LABEL, type AgentStatus } from "@/mocks/agents";
+import { WORKFLOW_LABEL, type AgentStatus } from "@/mocks/agents";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +8,129 @@ import { Progress } from "@/components/ui/progress";
 import { Bot, ArrowRight, Sparkles, BookOpen, ShieldCheck, GitBranch, GraduationCap } from "lucide-react";
 import { formatNumber } from "@/lib/format";
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
+
+// ---- DB-backed shapes (subset of fields actually used here) ----
+interface Segment {
+  id: number;
+  slug: string;
+  name: string;
+  description: string;
+}
+interface LLMSettingSummary {
+  segment: { id: number };
+  persona_name: string;
+  voice: { voice_name: string; gender: string };
+}
+
+// ---- View-model the existing JSX was already written against ----
+interface AgentCard {
+  id: string; // segment slug, used as the route param
+  name: string;
+  description: string;
+  status: AgentStatus;
+  workflow: keyof typeof WORKFLOW_LABEL;
+  persona: string;
+  gender: "male" | "female";
+  voice: string;
+  language: string;
+  version: string;
+  lastTrained: string;
+  metrics: { calls: number; connectRate: number; intentAccuracy: number; bookingRate: number };
+  knowledge: unknown[]; // only .length is used, for the header's kbItems count
+}
+
+// ---- Seeded RNG so "random" fields are stable per segment across reloads,
+// not just per render. Seeded off segment.id, not real entropy. ----
+function mulberry32(seed: number) {
+  return function () {
+    seed |= 0;
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function randInt(rng: () => number, min: number, max: number) {
+  return Math.floor(rng() * (max - min + 1)) + min;
+}
+function randPick<T>(rng: () => number, arr: T[]): T {
+  return arr[Math.floor(rng() * arr.length)];
+}
+
+const LANGUAGES = ["Bhopali Hindi", "Hindi", "Hinglish"];
+const VERSIONS = ["v1.0", "v1.8", "v2.1-beta", "v3.5", "v4.2", "v6.0"];
+const STATUSES: AgentStatus[] = ["live", "training", "draft"];
+const WORKFLOW_KEYS = Object.keys(WORKFLOW_LABEL) as (keyof typeof WORKFLOW_LABEL)[];
+const VOICES = [
+  { voice: "coral", gender: "female" as const },
+  { voice: "ash", gender: "male" as const },
+];
+
+function randomizedFieldsFor(segmentId: number) {
+  const rng = mulberry32(segmentId);
+  const daysAgo = randInt(rng, 1, 60);
+  const trained = new Date();
+  trained.setDate(trained.getDate() - daysAgo);
+
+  return {
+    status: randPick(rng, STATUSES),
+    workflow: randPick(rng, WORKFLOW_KEYS),
+    language: randPick(rng, LANGUAGES),
+    version: randPick(rng, VERSIONS),
+    lastTrained: trained.toISOString().slice(0, 10),
+    voicePick: randPick(rng, VOICES),
+    metrics: {
+      calls: randInt(rng, 150, 5000),
+      connectRate: randInt(rng, 40, 90),
+      intentAccuracy: randInt(rng, 60, 98),
+      bookingRate: randInt(rng, 10, 50),
+    },
+    knowledgeCount: randInt(rng, 0, 15),
+  };
+}
+
 export const Route = createFileRoute("/_app/agents/")({
+  loader: async () => {
+    const [segmentsRes, settingsRes] = await Promise.all([
+      fetch(`${API_BASE}/api/segments/`),
+      fetch(`${API_BASE}/api/llm-settings/`),
+    ]);
+    if (!segmentsRes.ok) throw notFound();
+
+    const { segments }: { segments: Segment[] } = await segmentsRes.json();
+    const { settings }: { settings: LLMSettingSummary[] } = settingsRes.ok
+      ? await settingsRes.json()
+      : { settings: [] };
+
+    const settingBySegmentId = new Map(settings.map((s) => [s.segment.id, s]));
+
+    const agents: AgentCard[] = segments.map((seg) => {
+      const r = randomizedFieldsFor(seg.id);
+      const setting = settingBySegmentId.get(seg.id);
+
+      return {
+        id: seg.slug,
+        name: seg.name,
+        description: seg.description,
+        status: r.status,
+        workflow: r.workflow,
+        // persona/voice/gender come from the real LLMSetting when one
+        // exists for this segment; otherwise fall back to the same
+        // seeded pool as everything else on the card.
+        persona: setting?.persona_name ?? "Aarohi",
+        gender: (setting?.voice.gender as "male" | "female") ?? r.voicePick.gender,
+        voice: setting?.voice.voice_name ?? r.voicePick.voice,
+        language: r.language,
+        version: r.version,
+        lastTrained: r.lastTrained,
+        metrics: r.metrics,
+        knowledge: Array.from({ length: r.knowledgeCount }),
+      };
+    });
+
+    return { agents };
+  },
   head: () => ({
     meta: [
       { title: "AI Agent Training — Triosoft" },
@@ -28,11 +150,13 @@ const STATUS_STYLE: Record<AgentStatus, string> = {
 };
 
 function AgentsPage() {
+  const { agents } = Route.useLoaderData();
+
   const live = agents.filter((a) => a.status === "live").length;
   const totalCalls = agents.reduce((s, a) => s + a.metrics.calls, 0);
   const avgAccuracy = Math.round(
     agents.filter((a) => a.metrics.intentAccuracy > 0).reduce((s, a) => s + a.metrics.intentAccuracy, 0) /
-      agents.filter((a) => a.metrics.intentAccuracy > 0).length,
+    agents.filter((a) => a.metrics.intentAccuracy > 0).length,
   );
   const kbItems = agents.reduce((s, a) => s + a.knowledge.length, 0);
 
