@@ -28,7 +28,7 @@ interface TTSVoice {
 
 interface LLMSetting {
   id: number;
-  segment: { id: number; slug: string; name: string; description: string; created_at: string | null; updated_at: string | null };
+  segment: { id: number; name: string; description: string; created_at: string | null; updated_at: string | null };
   persona_name: string;
   opening_line: string;
   system_prompt: string;
@@ -133,6 +133,7 @@ export const Route = createFileRoute("/_app/agents/$agentId")({
 });
 
 function AgentDetail() {
+  const { agentId } = Route.useParams();
   const { agent, setting, voices } = Route.useLoaderData();
 
   const [personaName, setPersonaName] = useState(setting.persona_name);
@@ -163,7 +164,7 @@ function AgentDetail() {
             <Button
               size="sm"
               onClick={async () => {
-                await fetch(`${API_BASE}/api/llm-settings/${setting.segment.slug}/`, {
+                await fetch(`${API_BASE}/api/llm-settings/${agentId}/`, {
                   method: "PATCH",
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
@@ -318,7 +319,7 @@ function AgentDetail() {
                   </div>
                   <div className="rounded-md bg-secondary p-3 text-sm">{step.say}</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {step.branches.map((b) => (
+                    {step.branches.map((b: { on: string; next: string }) => (
                       <span key={b.on} className="rounded-full border px-2 py-0.5 text-[11px]">
                         {b.on} → {b.next}
                       </span>
@@ -372,7 +373,7 @@ function AgentDetail() {
                   </div>
                   <Progress value={it.accuracy} className="h-1.5" />
                   <ul className="text-xs text-muted-foreground space-y-1 list-disc pl-4">
-                    {it.utterances.map((u) => <li key={u}>{u}</li>)}
+                    {it.utterances.map((u: string) => <li key={u}>{u}</li>)}
                   </ul>
                 </CardContent>
               </Card>

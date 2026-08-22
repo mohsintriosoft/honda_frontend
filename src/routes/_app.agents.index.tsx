@@ -13,7 +13,6 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 // ---- DB-backed shapes (subset of fields actually used here) ----
 interface Segment {
   id: number;
-  slug: string;
   name: string;
   description: string;
 }
@@ -25,7 +24,7 @@ interface LLMSettingSummary {
 
 // ---- View-model the existing JSX was already written against ----
 interface AgentCard {
-  id: string; // segment slug, used as the route param
+  id: string; // segment id (stringified), used as the route param
   name: string;
   description: string;
   status: AgentStatus;
@@ -110,7 +109,7 @@ export const Route = createFileRoute("/_app/agents/")({
       const setting = settingBySegmentId.get(seg.id);
 
       return {
-        id: seg.slug,
+        id: String(seg.id),
         name: seg.name,
         description: seg.description,
         status: r.status,
