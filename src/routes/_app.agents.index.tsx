@@ -109,63 +109,54 @@ const AgentsPage = () => {
     setShowLoaderAdmin(true);
     setErrorMsg(null);
 
-    await server_get_data(get_segments)
-      .then(async (Response) => {
-        let data = Response.message.split("~@~");
-        if (parseInt(data[0]) === 1) {
-          handleError(data[1]);
-          setErrorMsg(data[1]);
-          setShowLoaderAdmin(false);
-          return;
-        }
+    try {
+      const segmentsRes = await server_get_data(get_segments);
+      const segments: Segment[] = segmentsRes?.segments ?? [];
 
-        const segments = JSON.parse(data[1]);
-        let settingBySegmentId = new Map();
-
-        await server_get_data(get_llm_settings)
-          .then((SettingsResponse) => {
-            let settingsData = SettingsResponse.message.split("~@~");
-            if (parseInt(settingsData[0]) !== 1) {
-              const parsedSettings = JSON.parse(settingsData[1]);
-              const settings = parsedSettings.settings ?? [];
-              settingBySegmentId = new Map(
-                settings.map((setting) => [setting.segment.id, setting]),
-              );
-            }
-          })
-          .catch(() => {
-            // llm-settings are optional, fall back to defaults silently
-          });
-
-        const mappedAgents = segments.map((segment) => {
-          const randomized = randomizedFieldsFor(segment.id);
-          const setting = settingBySegmentId.get(segment.id);
-
-          return {
-            id: String(segment.id),
-            name: segment.name,
-            description: segment.description,
-            status: randomized.status,
-            workflow: randomized.workflow,
-            persona: setting?.persona_name ?? "Aarohi",
-            gender: setting?.voice?.gender ?? randomized.voicePick.gender,
-            voice: setting?.voice?.voice_name ?? randomized.voicePick.voice,
-            language: randomized.language,
-            version: randomized.version,
-            lastTrained: randomized.lastTrained,
-            metrics: randomized.metrics,
-            knowledge: Array.from({ length: randomized.knowledgeCount }),
-          };
-        });
-
-        setAgents(mappedAgents);
+      if (!segmentsRes?.segments) {
+        handleError("Failed to load segments");
+        setErrorMsg("Failed to load segments");
         setShowLoaderAdmin(false);
-      })
-      .catch((error) => {
-        handleError("network");
-        setErrorMsg("Failed to load AI agents");
-        setShowLoaderAdmin(false);
+        return;
+      }
+
+      let settingBySegmentId = new Map();
+      try {
+        const settingsRes = await server_get_data(get_llm_settings);
+        const settings = settingsRes?.settings ?? [];
+        settingBySegmentId = new Map(settings.map((setting) => [setting.segment.id, setting]));
+      } catch {
+        // llm-settings are optional, fall back to defaults silently
+      }
+
+      const mappedAgents = segments.map((segment) => {
+        const randomized = randomizedFieldsFor(segment.id);
+        const setting = settingBySegmentId.get(segment.id);
+
+        return {
+          id: String(segment.id),
+          name: segment.name,
+          description: segment.description,
+          status: randomized.status,
+          workflow: randomized.workflow,
+          persona: setting?.persona_name ?? "Aarohi",
+          gender: setting?.voice?.gender ?? randomized.voicePick.gender,
+          voice: setting?.voice?.voice_name ?? randomized.voicePick.voice,
+          language: randomized.language,
+          version: randomized.version,
+          lastTrained: randomized.lastTrained,
+          metrics: randomized.metrics,
+          knowledge: Array.from({ length: randomized.knowledgeCount }),
+        };
       });
+
+      setAgents(mappedAgents);
+    } catch (error) {
+      handleError("network");
+      setErrorMsg("Failed to load AI agents");
+    } finally {
+      setShowLoaderAdmin(false);
+    }
   };
 
   useEffect(() => {

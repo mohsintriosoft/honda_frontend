@@ -53,31 +53,3 @@ export const cssVar = (name, fallback) => {
     fallback
   );
 };
-
-/** POST wrapper for the 0~@~ response contract used across the app.
- *  Returns parsed data, or null when the call failed and was already reported. */
-export const makeCaller = (serverPost, onError) =>
-  async (url, fields = {}) => {
-    const fd = new FormData();
-    Object.entries(fields).forEach(([k, v]) => {
-      if (v !== undefined && v !== null && v !== "") fd.append(k, v);
-    });
-
-    try {
-      const res = await serverPost(url, fd);
-      const parts = res.message.split("~@~");
-      if (parseInt(parts[0]) === 1) {
-        onError(parts[1]);
-        return null;
-      }
-      const parsed = JSON.parse(parts[1]);
-      if (parsed.error) {
-        onError(parsed.message || "Something went wrong");
-        return null;
-      }
-      return parsed;
-    } catch (e) {
-      onError("network");
-      return null;
-    }
-  };
