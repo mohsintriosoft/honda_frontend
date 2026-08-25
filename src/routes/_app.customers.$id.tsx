@@ -57,7 +57,7 @@ export default function CustomerDetailPage() {
   const customer = customers.find((item) => item.id === id);
 
   /*
-   * React Router doesn't have TanStack's notFound().
+   * React Router doesn't have 's notFound().
    * Navigate back to customer list when the ID is invalid.
    */
   if (!customer) {
