@@ -23,6 +23,7 @@ import { formatNumber } from "../lib/format";
 import { storeData, retrieveData } from "@/components/LocalConnection/LocalConnection";
 import {
   server_post_data,
+  server_get_data,
   get_segments,
   get_llm_settings,
 } from "@/components/ServiceConnection/serviceconnection";
@@ -108,9 +109,7 @@ const AgentsPage = () => {
     setShowLoaderAdmin(true);
     setErrorMsg(null);
 
-    let formdata = new FormData();
-
-    await server_post_data(get_segments, formdata)
+    await server_get_data(get_segments)
       .then(async (Response) => {
         let data = Response.message.split("~@~");
         if (parseInt(data[0]) === 1) {
@@ -121,13 +120,9 @@ const AgentsPage = () => {
         }
 
         const segments = JSON.parse(data[1]);
-
-        // fetch llm-settings in parallel-ish, same pattern as
-        // master_data_get_refresh_token in DashboardWow
-        let settingsFormdata = new FormData();
         let settingBySegmentId = new Map();
 
-        await server_post_data(get_llm_settings, settingsFormdata)
+        await server_get_data(get_llm_settings)
           .then((SettingsResponse) => {
             let settingsData = SettingsResponse.message.split("~@~");
             if (parseInt(settingsData[0]) !== 1) {
