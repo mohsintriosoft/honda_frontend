@@ -1,11 +1,7 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { Outlet } from "react-router-dom";
 import { AppShell } from "@/components/layout/AppShell";
 
-export const Route = createFileRoute("/_app")({
-  component: AppLayout,
-});
-
-function AppLayout() {
+export default function AppLayout() {
   return (
     <AppShell>
       <Outlet />

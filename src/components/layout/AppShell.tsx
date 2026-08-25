@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
@@ -29,8 +29,12 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
-  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "./CommandPalette";
@@ -57,7 +61,7 @@ const secondary = [
 ] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { pathname } = useLocation();
   const [dark, setDark] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
 
@@ -76,8 +80,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const isActive = (to: string) =>
-    pathname === to || (to !== "/" && pathname.startsWith(to));
+  const isActive = (to: string) => pathname === to || (to !== "/" && pathname.startsWith(to));
 
   return (
     <div className="min-h-screen flex w-full bg-background text-foreground">
@@ -105,7 +108,9 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">Om Honda</div>
-                  <div className="text-[11px] text-muted-foreground truncate">Bhopal • 3 branches</div>
+                  <div className="text-[11px] text-muted-foreground truncate">
+                    Bhopal • 3 branches
+                  </div>
                 </div>
                 <ChevronDown className="size-4 text-muted-foreground" />
               </button>
@@ -133,7 +138,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
                 isActive(item.to)
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
               )}
             >
               <item.icon className="size-4" />
@@ -157,7 +162,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
                 isActive(item.to)
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60"
+                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
               )}
             >
               <item.icon className="size-4" />
@@ -232,7 +237,9 @@ export function AppShell({ children }: { children: ReactNode }) {
               <DropdownMenuTrigger asChild>
                 <button className="ml-1 flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent">
                   <Avatar className="size-7">
-                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">RS</AvatarFallback>
+                    <AvatarFallback className="text-xs bg-primary text-primary-foreground">
+                      RS
+                    </AvatarFallback>
                   </Avatar>
                   <div className="hidden lg:block text-left leading-tight">
                     <div className="text-xs font-medium">Rajesh Saini</div>
@@ -264,7 +271,10 @@ export function AppShell({ children }: { children: ReactNode }) {
 }
 
 export function PageHeader({
-  title, description, actions, breadcrumbs,
+  title,
+  description,
+  actions,
+  breadcrumbs,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -278,7 +288,9 @@ export function PageHeader({
           {breadcrumbs.map((b, i) => (
             <span key={i} className="flex items-center gap-1.5">
               {b.to ? (
-                <Link to={b.to} className="hover:text-foreground">{b.label}</Link>
+                <Link to={b.to} className="hover:text-foreground">
+                  {b.label}
+                </Link>
               ) : (
                 <span>{b.label}</span>
               )}
