@@ -1,6 +1,6 @@
-import { Routes, Route, Navigate, Outlet } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 
-import { AppShell } from "@/components/layout/AppShell"; // adjust path if AppShell lives elsewhere
+import { AppShell } from "@/components/layout/AppShell";
 
 import Home from "./routes/index";
 import Dashboard from "./routes/_app.dashboard";
@@ -35,7 +35,6 @@ import VoiceCall from "./routes/_app.voice.$callId";
 
 import WhatsApp from "./routes/_app.whatsapp.index";
 
-// Layout route: wraps every nested route in the header/sidebar shell
 function AppLayout() {
   return (
     <AppShell>
@@ -44,46 +43,106 @@ function AppLayout() {
   );
 }
 
+function NotFound() {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="text-center">
+        <h1 className="text-5xl font-bold">404</h1>
+        <p className="mt-2 text-muted-foreground">Page not found</p>
+
+        <a
+          href="/dashboard"
+          className="inline-flex mt-5 px-4 py-2 rounded-md bg-primary text-primary-foreground"
+        >
+          Go to Dashboard
+        </a>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Home />} />
+    <BrowserRouter>
+      <Routes>
+        {/* Home */}
+        <Route path="/" element={<Home />} />
 
-      <Route element={<AppLayout />}>
-        <Route path="/dashboard" element={<Dashboard />} />
+        {/* Application Layout */}
+        <Route element={<AppLayout />}>
+          {/* Dashboard */}
+          <Route path="/dashboard" element={<Dashboard />} />
 
-        <Route path="/agents" element={<Agents />} />
-        <Route path="/agents/:agentId" element={<AgentDetails />} />
-        <Route path="/agents/training" element={<AgentTraining />} />
-        <Route path="/agents/recordings" element={<AgentRecordings />} />
-        <Route path="/agents/recordings/review" element={<AgentRecordingsReview />} />
+          {/* ================= AGENTS ================= */}
 
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/appointments" element={<Appointments />} />
+          <Route path="/agents" element={<Agents />} />
 
-        <Route path="/campaigns" element={<Campaigns />} />
-        <Route path="/campaigns/new" element={<NewCampaign />} />
-        <Route path="/campaigns/:id" element={<CampaignDetails />} />
+          <Route path="/agents/training" element={<AgentTraining />} />
 
-        <Route path="/customers" element={<Customers />} />
-        <Route path="/customers/:id" element={<CustomerDetails />} />
+          <Route path="/agents/recordings" element={<AgentRecordings />} />
 
-        <Route path="/integrations" element={<Integrations />} />
-        <Route path="/journey" element={<Journey />} />
+          <Route path="/agents/recordings/review" element={<AgentRecordingsReview />} />
 
-        <Route path="/segments" element={<Segments />} />
-        <Route path="/segments/:slug" element={<SegmentDetails />} />
+          <Route path="/agents/:agentId" element={<AgentDetails />} />
 
-        <Route path="/settings" element={<Settings />} />
-        <Route path="/users" element={<Users />} />
+          {/* ================= ANALYTICS ================= */}
 
-        <Route path="/voice" element={<Voice />} />
-        <Route path="/voice/:callId" element={<VoiceCall />} />
+          <Route path="/analytics" element={<Analytics />} />
 
-        <Route path="/whatsapp" element={<WhatsApp />} />
-      </Route>
+          {/* ================= APPOINTMENTS ================= */}
 
-      <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+          <Route path="/appointments" element={<Appointments />} />
+
+          {/* ================= CAMPAIGNS ================= */}
+
+          <Route path="/campaigns" element={<Campaigns />} />
+
+          <Route path="/campaigns/new" element={<NewCampaign />} />
+
+          <Route path="/campaigns/:id" element={<CampaignDetails />} />
+
+          {/* ================= CUSTOMERS ================= */}
+
+          <Route path="/customers" element={<Customers />} />
+
+          <Route path="/customers/:id" element={<CustomerDetails />} />
+
+          {/* ================= INTEGRATIONS ================= */}
+
+          <Route path="/integrations" element={<Integrations />} />
+
+          {/* ================= JOURNEY ================= */}
+
+          <Route path="/journey" element={<Journey />} />
+
+          {/* ================= SEGMENTS ================= */}
+
+          <Route path="/segments" element={<Segments />} />
+
+          <Route path="/segments/:slug" element={<SegmentDetails />} />
+
+          {/* ================= SETTINGS ================= */}
+
+          <Route path="/settings" element={<Settings />} />
+
+          {/* ================= USERS ================= */}
+
+          <Route path="/users" element={<Users />} />
+
+          {/* ================= VOICE ================= */}
+
+          <Route path="/voice" element={<Voice />} />
+
+          <Route path="/voice/:callId" element={<VoiceCall />} />
+
+          {/* ================= WHATSAPP ================= */}
+
+          <Route path="/whatsapp" element={<WhatsApp />} />
+        </Route>
+
+        {/* 404 */}
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </BrowserRouter>
   );
 }

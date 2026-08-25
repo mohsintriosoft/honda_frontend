@@ -1,13 +1,15 @@
 import axios from "axios";
 import { retrieveData } from "../LocalConnection/LocalConnection.js";
 let APL_LINK = "http://192.168.1.9/wowreviews_final/";
-APL_LINK = "https://www.superpanel.wowreviews.co/";
+APL_LINK = "http://localhost:8000/";
 
-const bulk_upload_menu = local_server_link_react_aireport + "bulk_upload_menu";
-const login_user_email = local_server_link_react_aireport + "login_user_email";
-//==================Menu
+const bulk_upload_menu = APL_LINK + "bulk_upload_menu";
+const login_user_email = APL_LINK + "login_user_email";
+const get_segments = APL_LINK + "api/segments/";
+const get_llm_settings = APL_LINK + "api/llm-settings/";
+const get_tts_voices = APL_LINK + "api/tts-voices/";
+const update_llm_setting = APL_LINK + "api/tts-voices/";
 
-/* New Python APIS  */
 const server_post_data = async (url_for, Data) => {
   try {
     if (Data === null) {
@@ -39,4 +41,12 @@ const server_post_data = async (url_for, Data) => {
   }
 };
 
-export { APL_LINK, bulk_upload_menu, server_post_data };
+export {
+  APL_LINK,
+  bulk_upload_menu,
+  server_post_data,
+  get_segments,
+  get_llm_settings,
+  update_llm_setting,
+  get_tts_voices,
+};
