@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PageHeader } from "@/components/layout/AppShell";
 
@@ -72,12 +72,15 @@ import { WORKFLOW_LABEL, agents, type AgentWorkflow } from "@/mocks/agents";
 
 import { formatNumber } from "@/lib/format";
 
+import { get_recordings, server_get_data, APL_LINK, AUDIO_BASE_URL } from "@/components/ServiceConnection/serviceconnection";
+
 import {
   ArrowLeft,
   AudioLines,
   FileSpreadsheet,
   PhoneCall,
   Play,
+  Pause,
   Rocket,
   ClipboardCheck,
   Clock,
@@ -85,6 +88,7 @@ import {
   RefreshCw,
   ShieldAlert,
   Check,
+  Loader2,
 } from "lucide-react";
 
 const MODULES: AgentWorkflow[] = ["sales", "service", "insurance", "amc", "winback", "feedback"];
@@ -112,14 +116,112 @@ function parseModuleFromName(name: string): AgentWorkflow | null {
   return MODULES.find((m) => m === part) ?? null;
 }
 
+function outcomeLabel(code: string): string {
+  return (OUTCOME_LABEL as Record<string, string>)[code] ?? code.replace(/_/g, " ");
+}
+
+function getFileName(path: string): string {
+  if (!path) {
+    return "";
+  }
+
+  const normalized = path.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+
+  return parts[parts.length - 1] || path;
+}
+
+function joinUrl(...parts: string[]): string {
+  return parts
+    .map((p, i) => {
+      if (i === 0) return p.replace(/\/+$/, "");
+      return p.replace(/^\/+/, "").replace(/\/+$/, "");
+    })
+    .filter(Boolean)
+    .join("/");
+}
+
+function getAudioSrc(r: Recording): string {
+  if (!r.file) {
+    return "";
+  }
+
+  if (/^https?:\/\//i.test(r.file)) {
+    return r.file;
+  }
+
+  return joinUrl(APL_LINK, `/api/recordings/${r.id}/audio/`);
+}
+
+function mapRecordingApiToRecording(session: any): Recording {
+  const customerName: string =
+    session?.customer?.name || session?.customer?.phone_number || "Unknown customer";
+
+  const agentName: string =
+    session?.agent?.persona_name || session?.agent?.agent_name || "Unassigned agent";
+
+  const module: AgentWorkflow =
+    (session?.segment?.module as AgentWorkflow) ||
+    (session?.agent?.module as AgentWorkflow) ||
+    "service";
+
+  const transcript = Array.isArray(session?.transcript)
+    ? session.transcript.map((t: any) => ({
+      speaker: t.speaker === "bot" ? "agent" : "customer",
+      text: t.text ?? "",
+      at: t.at ?? t.timestamp ?? "",
+    }))
+    : [];
+
+  const detectedIntents: string[] = Array.isArray(session?.intent_history)
+    ? Array.from(
+      new Set(
+        session.intent_history
+          .map((h: any) => h?.intent)
+          .filter((v: unknown): v is string => typeof v === "string" && v.length > 0),
+      ),
+    )
+    : [];
+
+  return {
+    id: String(session.id),
+    file: session.recording_mixed || session.recording_stereo || `session_${session.id}.wav`,
+    customer: customerName,
+    agentName,
+    phone: session.phone ?? "unknown",
+    language: (session.language ?? "Hindi") as Recording["language"],
+    date: (session.started_at ?? "").slice(0, 10),
+    durationSec: session.duration_seconds ?? 0,
+    outcome: (session.final_intent_code || "callback") as Recording["outcome"],
+    quality: 0,
+    status: "reviewed",
+    source: "manifest",
+    module,
+    moduleSource: "metadata",
+    moduleConfidence: 100,
+    moduleAlternatives: [],
+    moduleSignals: [],
+    moduleEvidence: session?.segment?.name
+      ? `From segment: ${session.segment.name}`
+      : "From live call session data",
+    transcript,
+    detectedIntents,
+    objectionsRaised: [],
+    sentiment: [],
+  };
+}
+
 export default function RecordingsPage() {
   useEffect(() => {
     document.title = "Call Recordings — Agent Training — Triosoft";
   }, []);
 
-  const [items, setItems] = useState<Recording[]>(seedRecordings);
+  const [items, setItems] = useState<Recording[]>([]);
+  const [jobs, setJobs] = useState<IngestJob[]>(seedJobs); // NOT DYNAMIC — see notes above
 
-  const [jobs, setJobs] = useState<IngestJob[]>(seedJobs);
+  const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+  const [totalFromApi, setTotalFromApi] = useState<number | null>(null);
 
   const [moduleFilter, setModuleFilter] = useState<string>("all");
 
@@ -130,6 +232,111 @@ export default function RecordingsPage() {
   const [classFilter, setClassFilter] = useState<string>("all");
 
   const [open, setOpen] = useState<Recording | null>(null);
+
+  // --------------------------------------------------
+  // Audio playback (drawer)
+  // --------------------------------------------------
+
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioError, setAudioError] = useState<string | null>(null);
+
+  // Reset playback state whenever a different recording is opened, and stop
+  // playback when the drawer closes.
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setAudioDuration(0);
+    setAudioError(null);
+
+    const audio = audioRef.current;
+
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+  }, [open?.id]);
+
+  const togglePlayback = () => {
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      void audio.play().catch(() => {
+        setAudioError("Couldn't play this recording — the file may be unavailable.");
+      });
+    }
+  };
+
+  const seekTo = (ratio: number) => {
+    const audio = audioRef.current;
+
+    if (!audio || !audioDuration) {
+      return;
+    }
+
+    const clamped = Math.min(1, Math.max(0, ratio));
+
+    audio.currentTime = clamped * audioDuration;
+
+    setCurrentTime(audio.currentTime);
+  };
+
+  // --------------------------------------------------
+  // Fetch real recordings (CallSession rows) from the API
+  // --------------------------------------------------
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchRecordings() {
+      setLoading(true);
+      setFetchError(null);
+
+      try {
+        const data = await server_get_data(get_recordings, { page_size: 200 });
+
+        // Supports either a plain array or DRF pagination shape
+        // ({ count, results }) without caring which one the backend uses.
+        const rows: any[] = Array.isArray(data) ? data : data?.results ?? [];
+        const count: number | null = Array.isArray(data) ? data.length : data?.count ?? null;
+
+        if (!cancelled) {
+          setItems(rows.map(mapRecordingApiToRecording));
+          setTotalFromApi(count);
+        }
+      } catch (err) {
+        console.error("Failed to load recordings:", err);
+
+        if (!cancelled) {
+          // Offline / API-not-ready fallback so the page still demoes.
+          setFetchError(
+            "Couldn't reach the recordings API — showing sample data instead.",
+          );
+          setItems(seedRecordings);
+          setTotalFromApi(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    fetchRecordings();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // --------------------------------------------------
   // Module mapping controls
@@ -159,7 +366,7 @@ export default function RecordingsPage() {
   // Derived data
   // --------------------------------------------------
 
-  const pending = minedSuggestions.filter((s) => s.status === "pending").length;
+  const pending = minedSuggestions.filter((s) => s.status === "pending").length; // NOT DYNAMIC
 
   const unclassified = useMemo(() => items.filter(needsClassification), [items]);
 
@@ -189,8 +396,13 @@ export default function RecordingsPage() {
 
   const trainable = useMemo(() => filtered.filter((r) => !needsClassification(r)), [filtered]);
 
+  // Real count when the API gave us one; otherwise fall back to what we have
+  // in memory (matches old mock-based behavior).
+  const libraryTotal = totalFromApi ?? LIBRARY_TOTAL + items.length - seedRecordings.length;
+
   // --------------------------------------------------
-  // Upload / ingest
+  // Upload / ingest (still local-only — no backend endpoint for this yet,
+  // see "IngestJob list" in the NOT DYNAMIC notes above)
   // --------------------------------------------------
 
   const addUploads = (files: File[], source: Recording["source"], label: string) => {
@@ -212,10 +424,6 @@ export default function RecordingsPage() {
           : source === "dialer"
             ? (campaignMap[i % campaignMap.length]?.module ?? base.module)
             : tagged;
-
-      // ------------------------------------------------
-      // Explicit module
-      // ------------------------------------------------
 
       if (explicit) {
         return {
@@ -250,10 +458,6 @@ export default function RecordingsPage() {
                 : `Filename tag in ${f.name}`,
         };
       }
-
-      // ------------------------------------------------
-      // AI fallback
-      // ------------------------------------------------
 
       const ai = fallback === "ai" ? classifyTranscript(base.transcript) : null;
 
@@ -324,9 +528,9 @@ export default function RecordingsPage() {
               records.map((r) =>
                 created.some((c) => c.id === r.id)
                   ? {
-                      ...r,
-                      status: "mined" as const,
-                    }
+                    ...r,
+                    status: "mined" as const,
+                  }
                   : r,
               ),
             );
@@ -348,7 +552,9 @@ export default function RecordingsPage() {
   };
 
   // --------------------------------------------------
-  // Manual module classification
+  // Manual module classification (local state only — wire a
+  // patch_recording PATCH call here once the backend exposes
+  // a "module override" field on CallSession/Segment)
   // --------------------------------------------------
 
   const setModule = (id: string, module: AgentWorkflow) => {
@@ -356,30 +562,11 @@ export default function RecordingsPage() {
       all.map((r) =>
         r.id === id
           ? {
-              ...r,
-
-              module,
-
-              moduleSource: "manual" as ModuleSource,
-
-              moduleConfidence: 100,
-
-              moduleAlternatives: [],
-
-              moduleEvidence: "Set by a reviewer in the library",
-            }
-          : r,
-      ),
-    );
-
-    setOpen((current) =>
-      current && current.id === id
-        ? {
-            ...current,
+            ...r,
 
             module,
 
-            moduleSource: "manual",
+            moduleSource: "manual" as ModuleSource,
 
             moduleConfidence: 100,
 
@@ -387,12 +574,31 @@ export default function RecordingsPage() {
 
             moduleEvidence: "Set by a reviewer in the library",
           }
+          : r,
+      ),
+    );
+
+    setOpen((current) =>
+      current && current.id === id
+        ? {
+          ...current,
+
+          module,
+
+          moduleSource: "manual",
+
+          moduleConfidence: 100,
+
+          moduleAlternatives: [],
+
+          moduleEvidence: "Set by a reviewer in the library",
+        }
         : current,
     );
   };
 
   // --------------------------------------------------
-  // Training simulation
+  // Training simulation — NOT DYNAMIC, no TrainingRun table exists.
   // --------------------------------------------------
 
   const runTraining = () => {
@@ -463,6 +669,13 @@ export default function RecordingsPage() {
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
+        {fetchError && (
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs">
+            <ShieldAlert className="size-4 shrink-0 text-destructive" />
+            <span>{fetchError}</span>
+          </div>
+        )}
+
         {/* ==================================================
             Stats
         ================================================== */}
@@ -471,12 +684,15 @@ export default function RecordingsPage() {
           {[
             {
               l: "Recordings in library",
-              v: formatNumber(LIBRARY_TOTAL + items.length - seedRecordings.length),
+              v: formatNumber(libraryTotal),
               i: AudioLines,
             },
             {
               l: "Hours of audio",
-              v: `${(LIBRARY_TOTAL * 0.068 + totalHours(items)).toFixed(0)} h`,
+              // Dynamic when items come from the API (durationSec is real);
+              // LIBRARY_TOTAL padding factor only kicks in for the mock
+              // fallback so the number doesn't look wrong offline.
+              v: `${totalFromApi !== null ? totalHours(items).toFixed(0) : (LIBRARY_TOTAL * 0.068 + totalHours(items)).toFixed(0)} h`,
               i: Clock,
             },
             {
@@ -485,12 +701,12 @@ export default function RecordingsPage() {
               i: ShieldAlert,
             },
             {
-              l: "Mined suggestions",
+              l: "Mined suggestions", // NOT DYNAMIC
               v: String(minedSuggestions.length),
               i: Sparkles,
             },
             {
-              l: "Pending review",
+              l: "Pending review", // NOT DYNAMIC
               v: String(pending),
               i: ClipboardCheck,
             },
@@ -514,19 +730,16 @@ export default function RecordingsPage() {
         </div>
 
         {/* ==================================================
-            Ingest
-        ================================================== */}
-
-  
-
-        {/* ==================================================
             Recording library
         ================================================== */}
 
         <Card>
           <CardHeader className="gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <CardTitle className="text-base">Recording library</CardTitle>
+              <CardTitle className="text-base flex items-center gap-2">
+                Recording library
+                {loading && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+              </CardTitle>
 
               <div className="flex flex-wrap gap-2">
                 <Input
@@ -606,6 +819,8 @@ export default function RecordingsPage() {
 
                     <TableHead>Status</TableHead>
 
+                    <TableHead>LLM Cost</TableHead>
+
                     <TableHead />
                   </TableRow>
                 </TableHeader>
@@ -631,13 +846,22 @@ export default function RecordingsPage() {
                         {formatDuration(r.durationSec)}
                       </TableCell>
 
-                      <TableCell>{OUTCOME_LABEL[r.outcome]}</TableCell>
+                      <TableCell>{outcomeLabel(r.outcome)}</TableCell>
 
-                      <TableCell className="tabular-nums">{r.quality}</TableCell>
+                      {/* NOT DYNAMIC — no quality field on CallSession */}
+                      <TableCell className="tabular-nums text-muted-foreground">
+                        {r.quality || "—"}
+                      </TableCell>
+
+                      <TableCell className="text-xs text-muted-foreground tabular-nums">
+                        {/* NOT DYNAMIC — no llm_cost field on CallSession yet */}
+                        —
+                      </TableCell>
 
                       <TableCell>
                         <Badge className={STATUS_TONE[r.status]}>{r.status}</Badge>
                       </TableCell>
+
 
                       <TableCell>
                         <Button
@@ -659,7 +883,7 @@ export default function RecordingsPage() {
 
             <div className="px-4 py-3 text-xs text-muted-foreground">
               Showing {Math.min(25, filtered.length)} of {formatNumber(filtered.length)} filtered •{" "}
-              {formatNumber(LIBRARY_TOTAL)} total in archive
+              {formatNumber(libraryTotal)} total in archive
             </div>
           </CardContent>
         </Card>
@@ -679,7 +903,9 @@ export default function RecordingsPage() {
 
                 <CardDescription>
                   Calls with no module tag, or an AI guess below {CONFIDENCE_THRESHOLD}% confidence.
-                  They are excluded from training until confirmed.
+                  They are excluded from training until confirmed. Rows loaded from the live API
+                  already carry a confirmed module (from Segment), so this list will mostly show
+                  manually-uploaded recordings.
                 </CardDescription>
               </div>
             </div>
@@ -704,7 +930,7 @@ export default function RecordingsPage() {
                       </div>
 
                       <p className="mt-1 max-w-xl truncate text-xs text-muted-foreground">
-                        “{r.transcript[1]?.text ?? r.transcript[0]?.text}”
+                        "{r.transcript[1]?.text ?? r.transcript[0]?.text}"
                       </p>
 
                       <div className="mt-1 text-[11px] text-muted-foreground">
@@ -738,7 +964,7 @@ export default function RecordingsPage() {
 
             {unclassified.length > 8 && (
               <div className="px-4 py-3 text-xs text-muted-foreground">
-                Showing 8 of {unclassified.length} • filter the library by “Needs module review” to
+                Showing 8 of {unclassified.length} • filter the library by "Needs module review" to
                 see them all
               </div>
             )}
@@ -746,7 +972,7 @@ export default function RecordingsPage() {
         </Card>
 
         {/* ==================================================
-            Training run
+            Training run — NOT DYNAMIC (see notes at top of file)
         ================================================== */}
 
         <Card>
@@ -755,7 +981,8 @@ export default function RecordingsPage() {
 
             <CardDescription>
               Only calls with a confirmed module and approved suggestions from the review queue are
-              used.
+              used. The progress simulation and "Recent training runs" list below are still mocked
+              — there's no TrainingRun table in the backend yet.
             </CardDescription>
           </CardHeader>
 
@@ -799,7 +1026,7 @@ export default function RecordingsPage() {
 
                 <span>
                   {formatNumber(filtered.length - trainable.length)} calls excluded — module
-                  unconfirmed. Confirm them in “Needs classification” above so they train the right
+                  unconfirmed. Confirm them in "Needs classification" above so they train the right
                   agent.
                 </span>
               </div>
@@ -888,32 +1115,75 @@ export default function RecordingsPage() {
 
               <div className="px-4 pb-6 space-y-5">
                 {/* Audio */}
-                <div className="flex items-center gap-3 rounded-lg border p-3">
-                  <Button size="icon" variant="secondary">
-                    <Play className="size-4" />
-                  </Button>
+                <div className="rounded-lg border p-3 space-y-2">
+                  <div className="flex items-center gap-3">
+                    {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                    <audio
+                      ref={audioRef}
+                      src={getAudioSrc(open)}
+                      preload="metadata"
+                      onLoadedMetadata={(e) => setAudioDuration(e.currentTarget.duration || 0)}
+                      onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                      onPlay={() => setIsPlaying(true)}
+                      onPause={() => setIsPlaying(false)}
+                      onEnded={() => setIsPlaying(false)}
+                      onError={() =>
+                        setAudioError("Couldn't load this recording — the file may be unavailable.")
+                      }
+                    />
 
-                  <div className="flex-1">
-                    <div className="text-xs text-muted-foreground font-mono">{open.file}</div>
+                    <Button size="icon" variant="secondary" onClick={togglePlayback}>
+                      {isPlaying ? <Pause className="size-4" /> : <Play className="size-4" />}
+                    </Button>
 
-                    <Progress value={0} className="h-1.5 mt-2" />
+                    <div className="flex-1">
+                      <div className="text-xs text-muted-foreground font-mono">{open.file}</div>
+
+                      <div
+                        className="mt-2 cursor-pointer"
+                        onClick={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const ratio = (e.clientX - rect.left) / rect.width;
+                          seekTo(ratio);
+                        }}
+                      >
+                        <Progress
+                          value={audioDuration ? (currentTime / audioDuration) * 100 : 0}
+                          className="h-1.5"
+                        />
+                      </div>
+                    </div>
+
+                    <span className="text-xs tabular-nums text-muted-foreground">
+                      {formatDuration(Math.floor(currentTime))} /{" "}
+                      {formatDuration(Math.floor(audioDuration || open.durationSec))}
+                    </span>
                   </div>
 
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {formatDuration(open.durationSec)}
-                  </span>
+                  {audioError && (
+                    <div className="flex items-center gap-2 text-xs text-destructive">
+                      <ShieldAlert className="size-3.5 shrink-0" />
+                      <span>{audioError}</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Classification */}
                 <ClassificationPanel r={open} onOverride={setModule} />
 
-                {/* Sentiment */}
+                {/* Sentiment — NOT DYNAMIC, no backend field */}
                 <div>
                   <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
                     Sentiment
                   </div>
 
-                  <SentimentStrip points={open.sentiment} />
+                  {open.sentiment.length > 0 ? (
+                    <SentimentStrip points={open.sentiment} />
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Not available — CallSession has no sentiment field.
+                    </p>
+                  )}
                 </div>
 
                 {/* Intents / objections */}
@@ -924,9 +1194,10 @@ export default function RecordingsPage() {
                     </Badge>
                   ))}
 
+                  {/* NOT DYNAMIC — no objections field on the backend */}
                   {open.objectionsRaised.map((objection) => (
                     <Badge key={objection} variant="secondary" className="text-[10px]">
-                      “{objection}”
+                      "{objection}"
                     </Badge>
                   ))}
                 </div>

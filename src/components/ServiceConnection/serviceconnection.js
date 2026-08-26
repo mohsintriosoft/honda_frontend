@@ -8,6 +8,9 @@ import { retrieveData } from "../LocalConnection/LocalConnection.js";
 let APL_LINK = "http://192.168.1.9/wowreviews_final/";
 APL_LINK = "http://localhost:8000/";
 
+const AUDIO_BASE_URL = "/media/call_recordings/";
+
+
 /* =========================================================
    API ENDPOINTS
 ========================================================= */
@@ -19,6 +22,12 @@ const get_segments = APL_LINK + "api/segments/";
 const get_llm_settings = APL_LINK + "api/llm-settings/";
 const get_tts_voices = APL_LINK + "api/tts-voices/";
 const update_llm_setting = APL_LINK + "api/tts-voices/";
+
+const get_recordings = APL_LINK + "api/recordings/";
+const get_recording_detail = (id) => `${APL_LINK}api/recordings/${id}/`;
+const patch_recording = (id) => `${APL_LINK}api/recordings/${id}/`;
+const get_customers = APL_LINK + "api/customers/";
+const get_call_tasks = APL_LINK + "api/call-tasks/";
 
 /* =========================================================
    COMMON CONFIG
@@ -79,7 +88,6 @@ const isFormData = (data) => {
 const appendCommonFormData = (formData) => {
   const { customer_id, final_bus_id, counter_bus_id } = getCommonData();
 
-  // Only append if not already present
   if (!formData.has("key_secret")) {
     formData.append("key_secret", KEY_SECRET);
   }
@@ -145,7 +153,6 @@ const createFormData = (data = {}) => {
       return;
     }
 
-    // Array support
     if (Array.isArray(value)) {
       value.forEach((item) => {
         formData.append(`${key}[]`, item);
@@ -154,7 +161,6 @@ const createFormData = (data = {}) => {
       return;
     }
 
-    // File / Blob / string / number / boolean
     formData.append(key, value);
   });
 
@@ -184,7 +190,6 @@ const server_get_data = async (url_for, params = {}, config = {}) => {
 
 /* =========================================================
    POST
-   Default: FormData
 ========================================================= */
 
 const server_post_data = async (url_for, Data = null, config = {}) => {
@@ -193,7 +198,6 @@ const server_post_data = async (url_for, Data = null, config = {}) => {
       Data = new FormData();
     }
 
-    // If plain object -> convert to FormData
     if (!isFormData(Data)) {
       Data = createFormData(Data);
     } else {
@@ -207,8 +211,6 @@ const server_post_data = async (url_for, Data = null, config = {}) => {
         ...config,
         headers: {
           ...config.headers,
-          // Do NOT manually set multipart boundary.
-          // Axios/browser will set correct Content-Type.
         },
       }),
     );
@@ -258,7 +260,6 @@ const server_post_json = async (url_for, Data = {}, config = {}) => {
 
 /* =========================================================
    PUT
-   Default: JSON
 ========================================================= */
 
 const server_put_data = async (url_for, Data = {}, config = {}) => {
@@ -367,10 +368,6 @@ const server_delete_data = async (url_for, Data = {}, config = {}) => {
       ...config,
     });
 
-    /*
-      Axios DELETE body goes inside config.data
-    */
-
     if (Data && Object.keys(Data).length > 0) {
       finalConfig.data = Data;
     }
@@ -447,14 +444,6 @@ const server_options_data = async (url_for, config = {}) => {
 
 /* =========================================================
    GENERIC REQUEST
-   Supports:
-   GET
-   POST
-   PUT
-   PATCH
-   DELETE
-   HEAD
-   OPTIONS
 ========================================================= */
 
 const server_request = async ({
@@ -473,10 +462,6 @@ const server_request = async ({
 
     let finalData = data;
 
-    /* ---------------------------------------------
-       FormData handling
-    --------------------------------------------- */
-
     if (
       useFormData &&
       method.toUpperCase() !== "GET" &&
@@ -489,10 +474,6 @@ const server_request = async ({
         finalData = appendCommonFormData(finalData);
       }
     }
-
-    /* ---------------------------------------------
-       Axios Config
-    --------------------------------------------- */
 
     const finalConfig = {
       ...config,
@@ -585,10 +566,6 @@ const apiClient = axios.create({
   timeout: 30000,
 });
 
-/* =========================================================
-   AXIOS REQUEST INTERCEPTOR
-========================================================= */
-
 apiClient.interceptors.request.use(
   (config) => {
     try {
@@ -608,31 +585,14 @@ apiClient.interceptors.request.use(
   },
 );
 
-/* =========================================================
-   AXIOS RESPONSE INTERCEPTOR
-========================================================= */
-
 apiClient.interceptors.response.use(
   (response) => {
     return response;
   },
   (error) => {
-    /*
-      Central error handling
-    */
-
     if (error.response) {
       console.error("API Status:", error.response.status);
-
       console.error("API Response:", error.response.data);
-
-      /*
-      Example:
-
-      if (error.response.status === 401) {
-        // logout user
-      }
-      */
     } else if (error.request) {
       console.error("No response received from server");
     } else {
@@ -649,6 +609,7 @@ apiClient.interceptors.response.use(
 
 export {
   APL_LINK,
+  AUDIO_BASE_URL,
   // API URLs
   bulk_upload_menu,
   login_user_email,
@@ -656,6 +617,12 @@ export {
   get_llm_settings,
   get_tts_voices,
   update_llm_setting,
+  // NEW — recordings page
+  get_recordings,
+  get_recording_detail,
+  patch_recording,
+  get_customers,
+  get_call_tasks,
   // Basic Methods
   server_get_data,
   server_post_data,
@@ -673,7 +640,6 @@ export {
   // File Methods
   server_upload_file,
   server_download_file,
-
   // Axios Instance
   apiClient,
 };
