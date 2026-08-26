@@ -18,7 +18,7 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Progress } from "@/components/ui/progress";
 
-import { ArrowLeft, Save, Sparkles, AlertCircle } from "lucide-react";
+import { ArrowLeft, Save, Sparkles, AlertCircle, Plus, Pencil, Trash2 } from "lucide-react";
 
 import { formatNumber } from "@/lib/format";
 import {
@@ -140,6 +140,41 @@ const DEFAULT_EXTRAS: AgentExtras = {
   },
 
   openingLine: "",
+};
+
+/* -------------------------------------------------------------------------- */
+/* Knowledge form types & defaults                                            */
+/* -------------------------------------------------------------------------- */
+
+// TODO: replace with the real branch list for the current dealer (from context/API)
+const KNOWLEDGE_BRANCHES = ["Bhopal - MP Nagar", "Bhopal - Airport Road", "Bhopal - Indore Road"];
+
+// Only alphabets, numbers, and underscore allowed for category / source doc
+const isValidCategorySource = (value: string) => /^[a-zA-Z0-9_]+$/.test(value);
+
+interface MetadataRow {
+  key: string;
+  value: string;
+}
+
+interface KnowledgeFormState {
+  docId: string;
+  title: string;
+  content: string;
+  category: string;
+  sourceDoc: string;
+  branch: string;
+  metadata: MetadataRow[];
+}
+
+const EMPTY_KNOWLEDGE_FORM: KnowledgeFormState = {
+  docId: "",
+  title: "",
+  content: "",
+  category: "",
+  sourceDoc: "",
+  branch: "",
+  metadata: [],
 };
 
 /* -------------------------------------------------------------------------- */
@@ -316,6 +351,158 @@ function AgentDetailContent({
   const selectedVoice = voices.find((voice) => voice.id === voiceId) ?? setting.voice;
 
   /* ---------------------------------------------------------------------- */
+  /* Knowledge tab state                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  const [knowledgeItems, setKnowledgeItems] = useState<any[]>(agent.knowledge ?? []);
+  const [showKnowledgeForm, setShowKnowledgeForm] = useState(false);
+  const [editingKnowledgeId, setEditingKnowledgeId] = useState<number | string | null>(null);
+  const [knowledgeForm, setKnowledgeForm] = useState<KnowledgeFormState>(EMPTY_KNOWLEDGE_FORM);
+  const [knowledgeErrors, setKnowledgeErrors] = useState<Record<string, string>>({});
+
+  function openAddKnowledgeForm() {
+    setEditingKnowledgeId(null);
+    setKnowledgeForm(EMPTY_KNOWLEDGE_FORM);
+    setKnowledgeErrors({});
+    setShowKnowledgeForm(true);
+  }
+
+  function openEditKnowledgeForm(item: any) {
+    const metadataRows: MetadataRow[] = Object.entries(item.metadata ?? {}).map(
+      ([key, value]) => ({ key, value: String(value) }),
+    );
+
+    setEditingKnowledgeId(item.id);
+    setKnowledgeForm({
+      docId: String(item.doc_id ?? item.id ?? ""),
+      title: item.title ?? "",
+      content: item.content ?? "",
+      category: item.type ?? item.category ?? "",
+      sourceDoc: (item.source ?? "").replace(/\.pdf$/, ""),
+      branch: item.branch ?? "",
+      metadata: metadataRows,
+    });
+    setKnowledgeErrors({});
+    setShowKnowledgeForm(true);
+  }
+
+  function closeKnowledgeForm() {
+    setShowKnowledgeForm(false);
+    setEditingKnowledgeId(null);
+    setKnowledgeForm(EMPTY_KNOWLEDGE_FORM);
+    setKnowledgeErrors({});
+  }
+
+  function handleKnowledgeFieldChange(field: keyof Omit<KnowledgeFormState, "metadata">, value: string) {
+    setKnowledgeForm((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function addMetadataRow() {
+    setKnowledgeForm((prev) => ({ ...prev, metadata: [...prev.metadata, { key: "", value: "" }] }));
+  }
+
+  function updateMetadataRow(index: number, field: keyof MetadataRow, value: string) {
+    setKnowledgeForm((prev) => ({
+      ...prev,
+      metadata: prev.metadata.map((row, rowIndex) =>
+        rowIndex === index ? { ...row, [field]: value } : row,
+      ),
+    }));
+  }
+
+  function deleteMetadataRow(index: number) {
+    setKnowledgeForm((prev) => ({
+      ...prev,
+      metadata: prev.metadata.filter((_, rowIndex) => rowIndex !== index),
+    }));
+  }
+
+  function validateKnowledgeForm() {
+    const newErrors: Record<string, string> = {};
+
+    if (!knowledgeForm.docId.trim()) newErrors.docId = "Document ID is required";
+    if (!knowledgeForm.title.trim()) newErrors.title = "Title is required";
+    if (!knowledgeForm.content.trim()) newErrors.content = "Content is required";
+
+    if (!knowledgeForm.category.trim()) {
+      newErrors.category = "Category is required";
+    } else if (!isValidCategorySource(knowledgeForm.category)) {
+      newErrors.category = "Only alphabets, numbers, and underscore (_) allowed";
+    }
+
+    if (knowledgeForm.sourceDoc.trim() && !isValidCategorySource(knowledgeForm.sourceDoc)) {
+      newErrors.sourceDoc = "Only alphabets, numbers, and underscore (_) allowed";
+    }
+
+    knowledgeForm.metadata.forEach((row, index) => {
+      if (!row.key.trim()) newErrors[`metadata_${index}_key`] = "Key is required";
+    });
+
+    setKnowledgeErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  }
+
+  function handleSaveKnowledgeForm() {
+    if (!validateKnowledgeForm()) return;
+
+    const metadata: Record<string, string | number> = {};
+    knowledgeForm.metadata.forEach((row) => {
+      if (row.key.trim()) {
+        const numValue = Number(row.value);
+        metadata[row.key.trim()] = row.value === "" || isNaN(numValue) ? row.value : numValue;
+      }
+    });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const source = knowledgeForm.sourceDoc.trim() ? `${knowledgeForm.sourceDoc}.pdf` : "";
+
+    if (editingKnowledgeId !== null) {
+      setKnowledgeItems((prev) =>
+        prev.map((item) =>
+          item.id === editingKnowledgeId
+            ? {
+                ...item,
+                doc_id: knowledgeForm.docId,
+                title: knowledgeForm.title,
+                content: knowledgeForm.content,
+                type: knowledgeForm.category,
+                source,
+                branch: knowledgeForm.branch,
+                metadata,
+                updatedAt: today,
+              }
+            : item,
+        ),
+      );
+    } else {
+      setKnowledgeItems((prev) => [
+        ...prev,
+        {
+          id: Date.now(),
+          doc_id: knowledgeForm.docId,
+          title: knowledgeForm.title,
+          content: knowledgeForm.content,
+          type: knowledgeForm.category,
+          source,
+          branch: knowledgeForm.branch,
+          metadata,
+          status: "indexed",
+          chunks: 0,
+          updatedAt: today,
+        },
+      ]);
+    }
+
+    // TODO: wire this up to the real knowledge-base API (store / update endpoint)
+    closeKnowledgeForm();
+  }
+
+  function handleDeleteKnowledge(id: number | string) {
+    setKnowledgeItems((prev) => prev.filter((item) => item.id !== id));
+    // TODO: wire this up to the real knowledge-base API (delete endpoint)
+  }
+
+  /* ---------------------------------------------------------------------- */
   /* Save                                                                   */
   /* ---------------------------------------------------------------------- */
 
@@ -357,20 +544,12 @@ function AgentDetailContent({
         title={agent.name}
         description={agent.description}
         actions={
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <Link to="/agents">
-                <ArrowLeft className="size-4" />
-                Back
-              </Link>
-            </Button>
-
-            <Button size="sm" onClick={handleSave} disabled={saving}>
-              <Save className="size-4" />
-
-              {saving ? "Saving..." : "Save changes"}
-            </Button>
-          </div>
+          <Button variant="outline" size="sm" asChild>
+            <Link to="/agents">
+              <ArrowLeft className="size-4" />
+              Back
+            </Link>
+          </Button>
         }
       />
 
@@ -455,147 +634,152 @@ function AgentDetailContent({
           {/* PERSONA                                                       */}
           {/* ============================================================ */}
 
-          <TabsContent value="persona" className="mt-4 grid gap-4 lg:grid-cols-2">
+          <TabsContent value="persona" className="mt-4">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Identity</CardTitle>
-              </CardHeader>
-
-              <CardContent className="space-y-4">
-                <div className="space-y-1.5">
-                  <Label>Persona name</Label>
-
-                  <Input
-                    value={personaName}
-                    onChange={(event) => setPersonaName(event.target.value)}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label>Voice</Label>
-
-                    <select
-                      className="w-full h-9 rounded-md border px-3 text-sm bg-background"
-                      value={voiceId}
-                      onChange={(event) => setVoiceId(Number(event.target.value))}
-                    >
-                      {voices.length === 0 && (
-                        <option value={setting.voice.id}>{setting.voice.voice_name}</option>
-                      )}
-
-                      {voices.map((voice) => (
-                        <option key={voice.id} value={voice.id}>
-                          {voice.voice_name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+              <CardContent className="grid gap-8 pt-6 lg:grid-cols-2">
+                {/* Identity column */}
+                <div className="space-y-4">
+                  <h3 className="text-base font-semibold">Identity</h3>
 
                   <div className="space-y-1.5">
-                    <Label>Gender</Label>
-
-                    <Input value={selectedVoice.gender} disabled />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>Opening line</Label>
-
-                  <Textarea
-                    rows={3}
-                    value={openingLine}
-                    onChange={(event) => setOpeningLine(event.target.value)}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label>System prompt</Label>
-
-                  <Textarea
-                    rows={7}
-                    value={systemPrompt}
-                    onChange={(event) => setSystemPrompt(event.target.value)}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Behaviour */}
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Behaviour</CardTitle>
-              </CardHeader>
-
-              <CardContent className="space-y-6">
-                {[
-                  {
-                    label: "Tone (formal → friendly)",
-                    value: tone,
-                    setValue: setTone,
-                  },
-                  {
-                    label: "Pace (slow → fast)",
-                    value: pace,
-                    setValue: setPace,
-                  },
-                  {
-                    label: "Persistence",
-                    value: persistence,
-                    setValue: setPersistence,
-                  },
-                ].map((item) => (
-                  <div key={item.label} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <Label>{item.label}</Label>
-
-                      <span className="tabular-nums text-muted-foreground">{item.value}</span>
-                    </div>
-
-                    <Slider
-                      value={[item.value]}
-                      max={100}
-                      step={1}
-                      onValueChange={(value) => item.setValue(value[0] ?? 0)}
-                    />
-                  </div>
-                ))}
-
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="space-y-1.5">
-                    <Label>Max turns</Label>
+                    <Label>Persona name</Label>
 
                     <Input
-                      type="number"
-                      value={maxTurns}
-                      onChange={(event) => setMaxTurns(Number(event.target.value))}
+                      value={personaName}
+                      onChange={(event) => setPersonaName(event.target.value)}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <Label>Voice</Label>
+
+                      <select
+                        className="w-full h-9 rounded-md border px-3 text-sm bg-background"
+                        value={voiceId}
+                        onChange={(event) => setVoiceId(Number(event.target.value))}
+                      >
+                        {voices.length === 0 && (
+                          <option value={setting.voice.id}>{setting.voice.voice_name}</option>
+                        )}
+
+                        {voices.map((voice) => (
+                          <option key={voice.id} value={voice.id}>
+                            {voice.voice_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label>Gender</Label>
+
+                      <Input value={selectedVoice.gender} disabled />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Opening line</Label>
+
+                    <Textarea
+                      rows={3}
+                      value={openingLine}
+                      onChange={(event) => setOpeningLine(event.target.value)}
                     />
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label>Call window</Label>
+                    <Label>System prompt</Label>
 
-                    <Input defaultValue={agent.callWindow} />
-                  </div>
-
-                  <div className="space-y-1.5 col-span-2">
-                    <Label>Retry policy</Label>
-
-                    <Input defaultValue={agent.retryPolicy} />
+                    <Textarea
+                      rows={7}
+                      value={systemPrompt}
+                      onChange={(event) => setSystemPrompt(event.target.value)}
+                    />
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <div>
-                    <div className="text-sm font-medium">Interruptible</div>
+                {/* Behaviour column */}
+                <div className="space-y-6">
+                  <h3 className="text-base font-semibold">Behaviour</h3>
 
-                    <div className="text-xs text-muted-foreground">
-                      Customer can barge in mid-sentence
+                  {[
+                    {
+                      label: "Tone (formal → friendly)",
+                      value: tone,
+                      setValue: setTone,
+                    },
+                    {
+                      label: "Pace (slow → fast)",
+                      value: pace,
+                      setValue: setPace,
+                    },
+                    {
+                      label: "Persistence",
+                      value: persistence,
+                      setValue: setPersistence,
+                    },
+                  ].map((item) => (
+                    <div key={item.label} className="space-y-2">
+                      <div className="flex items-center justify-between text-sm">
+                        <Label>{item.label}</Label>
+
+                        <span className="tabular-nums text-muted-foreground">{item.value}</span>
+                      </div>
+
+                      <Slider
+                        value={[item.value]}
+                        max={100}
+                        step={1}
+                        onValueChange={(value) => item.setValue(value[0] ?? 0)}
+                      />
+                    </div>
+                  ))}
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="space-y-1.5">
+                      <Label>Max turns</Label>
+
+                      <Input
+                        type="number"
+                        value={maxTurns}
+                        onChange={(event) => setMaxTurns(Number(event.target.value))}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label>Call window</Label>
+
+                      <Input defaultValue={agent.callWindow} />
+                    </div>
+
+                    <div className="space-y-1.5 col-span-2">
+                      <Label>Retry policy</Label>
+
+                      <Input defaultValue={agent.retryPolicy} />
                     </div>
                   </div>
 
-                  <Switch checked={allowInterrupt} onCheckedChange={setAllowInterrupt} />
+                  <div className="flex items-center justify-between rounded-md border p-3">
+                    <div>
+                      <div className="text-sm font-medium">Interruptible</div>
+
+                      <div className="text-xs text-muted-foreground">
+                        Customer can barge in mid-sentence
+                      </div>
+                    </div>
+
+                    <Switch checked={allowInterrupt} onCheckedChange={setAllowInterrupt} />
+                  </div>
+                </div>
+
+                {/* Save action — spans both columns, sits after Interruptible */}
+                <div className="flex justify-end lg:col-span-2">
+                  <Button size="sm" onClick={handleSave} disabled={saving}>
+                    <Save className="size-4" />
+
+                    {saving ? "Saving..." : "Save changes"}
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -658,30 +842,271 @@ function AgentDetailContent({
           {/* KNOWLEDGE                                                      */}
           {/* ============================================================ */}
 
-          <TabsContent value="knowledge" className="mt-4 grid gap-3 md:grid-cols-2">
-            {agent.knowledge.length === 0 && (
-              <Card className="md:col-span-2">
-                <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No knowledge sources configured.
+          <TabsContent value="knowledge" className="mt-4 space-y-4">
+            <div className="flex justify-end">
+              <Button size="sm" onClick={openAddKnowledgeForm}>
+                <Plus className="size-4" />
+                Add
+              </Button>
+            </div>
+
+            {showKnowledgeForm && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">
+                    {editingKnowledgeId !== null ? "Edit knowledge source" : "Add knowledge source"}
+                  </CardTitle>
+                </CardHeader>
+
+                <CardContent className="space-y-6">
+                  {/* Document ID */}
+                  <div className="space-y-1.5">
+                    <Label>
+                      Document ID <span className="text-destructive">*</span>
+                    </Label>
+
+                    <Input
+                      value={knowledgeForm.docId}
+                      disabled={editingKnowledgeId !== null}
+                      placeholder="e.g. city_service_001"
+                      onChange={(event) => handleKnowledgeFieldChange("docId", event.target.value)}
+                    />
+
+                    {knowledgeErrors.docId && (
+                      <p className="text-xs text-destructive">{knowledgeErrors.docId}</p>
+                    )}
+
+                    {editingKnowledgeId === null && (
+                      <p className="text-xs text-muted-foreground">Leave empty to auto-generate</p>
+                    )}
+                  </div>
+
+                  {/* Title */}
+                  <div className="space-y-1.5">
+                    <Label>
+                      Title <span className="text-destructive">*</span>
+                    </Label>
+
+                    <Input
+                      value={knowledgeForm.title}
+                      onChange={(event) => handleKnowledgeFieldChange("title", event.target.value)}
+                    />
+
+                    {knowledgeErrors.title && (
+                      <p className="text-xs text-destructive">{knowledgeErrors.title}</p>
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="space-y-1.5">
+                    <Label>
+                      Content <span className="text-destructive">*</span>
+                    </Label>
+
+                    <Textarea
+                      rows={5}
+                      value={knowledgeForm.content}
+                      placeholder="Enter service description in Hindi/English…"
+                      onChange={(event) => handleKnowledgeFieldChange("content", event.target.value)}
+                    />
+
+                    {knowledgeErrors.content && (
+                      <p className="text-xs text-destructive">{knowledgeErrors.content}</p>
+                    )}
+                  </div>
+
+                  <div className="h-px bg-border" />
+
+                  {/* Category / Source / Branch */}
+                  <div>
+                    <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-primary">
+                      Metadata
+                    </h4>
+
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label>
+                          Category <span className="text-destructive">*</span>
+                        </Label>
+
+                        <Input
+                          value={knowledgeForm.category}
+                          placeholder="e.g. free_service"
+                          onChange={(event) =>
+                            handleKnowledgeFieldChange("category", event.target.value)
+                          }
+                        />
+
+                        {knowledgeErrors.category && (
+                          <p className="text-xs text-destructive">{knowledgeErrors.category}</p>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label>Branch</Label>
+
+                        <select
+                          className="w-full h-9 rounded-md border px-3 text-sm bg-background"
+                          value={knowledgeForm.branch}
+                          onChange={(event) =>
+                            handleKnowledgeFieldChange("branch", event.target.value)
+                          }
+                        >
+                          <option value="">Select branch</option>
+
+                          {KNOWLEDGE_BRANCHES.map((branch) => (
+                            <option key={branch} value={branch}>
+                              {branch}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1.5 md:col-span-2">
+                        <Label>Source document</Label>
+
+                        <div className="flex items-center">
+                          <Input
+                            className="rounded-r-none"
+                            value={knowledgeForm.sourceDoc}
+                            placeholder="e.g. service_manual_2024"
+                            onChange={(event) =>
+                              handleKnowledgeFieldChange("sourceDoc", event.target.value)
+                            }
+                          />
+
+                          <span className="flex h-9 items-center rounded-r-md border border-l-0 bg-secondary px-3 text-sm text-muted-foreground">
+                            .pdf
+                          </span>
+                        </div>
+
+                        {knowledgeErrors.sourceDoc && (
+                          <p className="text-xs text-destructive">{knowledgeErrors.sourceDoc}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Dynamic metadata key/value fields */}
+                  <div>
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="text-xs font-semibold uppercase tracking-wide text-primary">
+                        Additional metadata
+                      </h4>
+
+                      <Button type="button" variant="outline" size="sm" onClick={addMetadataRow}>
+                        <Plus className="size-3.5" />
+                        Add field
+                      </Button>
+                    </div>
+
+                    <div className="rounded-md border border-dashed p-4">
+                      {knowledgeForm.metadata.length === 0 ? (
+                        <p className="py-2 text-center text-xs text-muted-foreground">
+                          No fields added. Click "Add field" to add metadata.
+                        </p>
+                      ) : (
+                        <div className="space-y-3">
+                          {knowledgeForm.metadata.map((row, index) => (
+                            <div key={index} className="grid grid-cols-[1fr_1fr_auto] items-start gap-2">
+                              <div>
+                                <Input
+                                  value={row.key}
+                                  placeholder="Field name (e.g. vehicle)"
+                                  onChange={(event) =>
+                                    updateMetadataRow(index, "key", event.target.value)
+                                  }
+                                />
+
+                                {knowledgeErrors[`metadata_${index}_key`] && (
+                                  <p className="mt-1 text-xs text-destructive">
+                                    {knowledgeErrors[`metadata_${index}_key`]}
+                                  </p>
+                                )}
+                              </div>
+
+                              <Input
+                                value={row.value}
+                                placeholder="Value (e.g. Honda City)"
+                                onChange={(event) =>
+                                  updateMetadataRow(index, "value", event.target.value)
+                                }
+                              />
+
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="icon"
+                                className="text-destructive"
+                                onClick={() => deleteMetadataRow(index)}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" size="sm" onClick={closeKnowledgeForm}>
+                      Cancel
+                    </Button>
+
+                    <Button size="sm" onClick={handleSaveKnowledgeForm}>
+                      {editingKnowledgeId !== null ? "Update" : "Add"}
+                    </Button>
+                  </div>
                 </CardContent>
               </Card>
             )}
 
-            {agent.knowledge.map((knowledge: any, index: number) => (
-              <Card key={knowledge.id ?? index}>
-                <CardContent className="pt-6 space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-sm">{knowledge.title}</span>
+            <div className="grid gap-3 md:grid-cols-2">
+              {knowledgeItems.length === 0 && !showKnowledgeForm && (
+                <Card className="md:col-span-2">
+                  <CardContent className="py-10 text-center text-sm text-muted-foreground">
+                    No knowledge sources configured.
+                  </CardContent>
+                </Card>
+              )}
 
-                    <Badge variant="outline">{knowledge.status}</Badge>
-                  </div>
+              {knowledgeItems.map((knowledge: any, index: number) => (
+                <Card key={knowledge.id ?? index}>
+                  <CardContent className="pt-6 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium text-sm">{knowledge.title}</span>
 
-                  <div className="text-xs text-muted-foreground">
-                    {knowledge.type} • {knowledge.chunks} chunks • updated {knowledge.updatedAt}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+                      <Badge variant="outline">{knowledge.status}</Badge>
+                    </div>
+
+                    <div className="text-xs text-muted-foreground">
+                      {knowledge.type} • {knowledge.chunks} chunks • updated {knowledge.updatedAt}
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openEditKnowledgeForm(knowledge)}
+                      >
+                        <Pencil className="size-3.5" />
+                        Edit
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleDeleteKnowledge(knowledge.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                        Delete
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </TabsContent>
 
           {/* ============================================================ */}
