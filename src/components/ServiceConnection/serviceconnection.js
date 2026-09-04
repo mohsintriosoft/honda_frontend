@@ -6,10 +6,10 @@ import { retrieveData } from "../LocalConnection/LocalConnection.js";
 ========================================================= */
 
 let APL_LINK = "http://192.168.1.9/wowreviews_final/";
-APL_LINK = "http://localhost:8000/";
+//APL_LINK = "http://localhost:8000/";
+APL_LINK = "https://omhonda.triosoft.ai/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
-
 
 /* =========================================================
    API ENDPOINTS
