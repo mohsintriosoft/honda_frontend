@@ -12,6 +12,8 @@ import {
   Bot,
   AudioLines,
   ClipboardCheck,
+  Target,
+  BookOpen,
   Plug,
   Shield,
   Settings,
@@ -48,9 +50,12 @@ const nav = [
   { to: "/agents", label: "AI Agents", icon: Bot },
   { to: "/agents/recordings", label: "Call Recordings", icon: AudioLines },
   { to: "/agents/recordings/review", label: "Review Queue", icon: ClipboardCheck, badge: "16" },
+  { to: "/intents", label: "Intents", icon: Target },   // NEW
+  { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },   // NEW
   { to: "/voice", label: "AI Voice Calls", icon: PhoneCall },
   { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare, badge: "12" },
   { to: "/appointments", label: "Appointments", icon: CalendarDays },
+  { to: "/branches", label: "Branches", icon: Building2 },   // NEW
   { to: "/analytics", label: "Reports & Analytics", icon: BarChart3 },
 ] as const;
 

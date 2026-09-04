@@ -21,13 +21,42 @@ const login_user_email = APL_LINK + "login_user_email";
 const get_segments = APL_LINK + "api/segments/";
 const get_llm_settings = APL_LINK + "api/llm-settings/";
 const get_tts_voices = APL_LINK + "api/tts-voices/";
-const update_llm_setting = APL_LINK + "api/tts-voices/";
+// BUGFIX: this was pointing at api/tts-voices/, which meant any caller
+// using this constant to save an agent would silently hit the wrong
+// endpoint. Kept for backwards compatibility with any existing callers;
+// new code should just use get_llm_settings + `${agentId}/` directly,
+// same as _app_agents__agentId.tsx already does.
+const update_llm_setting = APL_LINK + "api/llm-settings/";
+
+// Read-only knowledge-via-segments view for a single agent (docs §9.9 / §19.5).
+// Agent detail pages must use this instead of the general kb/documents
+// endpoints, which are editable and gated by can_edit_knowledge.
+const get_agent_knowledge = (agentId) => `${APL_LINK}api/agents/${agentId}/knowledge/`;
 
 const get_recordings = APL_LINK + "api/recordings/";
 const get_recording_detail = (id) => `${APL_LINK}api/recordings/${id}/`;
 const patch_recording = (id) => `${APL_LINK}api/recordings/${id}/`;
 const get_customers = APL_LINK + "api/customers/";
 const get_call_tasks = APL_LINK + "api/call-tasks/";
+
+const get_dealers = APL_LINK + "api/dealers/";
+const get_branches = APL_LINK + "api/branches/";
+const get_kb_documents = APL_LINK + "api/kb/documents/";
+const kb_store_url = APL_LINK + "api/kb/store/";
+const kb_document_update_url = (docId) => `${APL_LINK}api/kb/documents/${docId}/update/`;
+const kb_document_delete_url = (docId) => `${APL_LINK}api/kb/documents/${docId}/`;
+
+// Campaigns — list/detail/toggle ONLY, no create endpoint. Campaigns are
+// permanent, 1:1 with a Segment, and seeded once at setup (docs §11);
+// there is no "New campaign" flow to wire up here.
+const get_campaigns = APL_LINK + "api/campaigns/";
+const get_campaign_detail = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/`;
+const patch_campaign = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/`;
+const campaign_pause = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/pause/`;
+const campaign_pause_clear = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/pause-clear/`;
+const campaign_resume = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/resume/`;
+const get_campaign_batches = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/batches/`;
+
 
 /* =========================================================
    COMMON CONFIG
@@ -623,6 +652,23 @@ export {
   patch_recording,
   get_customers,
   get_call_tasks,
+  // NEW — knowledge base / branches
+  get_branches,
+  get_kb_documents,
+  kb_store_url,
+  kb_document_update_url,
+  kb_document_delete_url,
+  get_dealers,
+  // NEW — read-only knowledge-via-segments view for an agent (docs §9.9)
+  get_agent_knowledge,
+  // NEW — campaigns (list/detail/toggle only, no create — docs §11)
+  get_campaigns,
+  get_campaign_detail,
+  patch_campaign,
+  campaign_pause,
+  campaign_pause_clear,
+  campaign_resume,
+  get_campaign_batches,
   // Basic Methods
   server_get_data,
   server_post_data,

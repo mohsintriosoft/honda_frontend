@@ -14,6 +14,9 @@ import AgentRecordingsReview from "./routes/_app.agents.recordings.review";
 import Analytics from "./routes/_app.analytics.index";
 import Appointments from "./routes/_app.appointments.index";
 
+import Branches from "./routes/_app.branches.index";
+import BranchDetails from "./routes/_app.branches.$id";
+
 import Campaigns from "./routes/_app.campaigns.index";
 import CampaignDetails from "./routes/_app.campaigns.$id";
 import NewCampaign from "./routes/_app.campaigns.new";
@@ -22,7 +25,10 @@ import Customers from "./routes/_app.customers.index";
 import CustomerDetails from "./routes/_app.customers.$id";
 
 import Integrations from "./routes/_app.integrations.index";
+import Intents from "./routes/_app.intents.index";
+import IntentDetails from "./routes/_app.intents.$id";
 import Journey from "./routes/_app.journey.index";
+import KnowledgeGlobal from "./routes/_app.knowledge.index";
 
 import Segments from "./routes/_app.segments.index";
 import SegmentDetails from "./routes/_app.segments.$slug";
@@ -93,6 +99,14 @@ export default function App() {
 
           <Route path="/appointments" element={<Appointments />} />
 
+          {/* ================= BRANCHES ================= */}
+
+          <Route path="/branches" element={<Branches />} />
+
+          <Route path="/branches/new" element={<BranchDetails />} />
+
+          <Route path="/branches/:id" element={<BranchDetails />} />
+
           {/* ================= CAMPAIGNS ================= */}
 
           <Route path="/campaigns" element={<Campaigns />} />
@@ -111,9 +125,19 @@ export default function App() {
 
           <Route path="/integrations" element={<Integrations />} />
 
+          {/* ================= INTENTS ================= */}
+
+          <Route path="/intents" element={<Intents />} />
+
+          <Route path="/intents/:code" element={<IntentDetails />} />
+
           {/* ================= JOURNEY ================= */}
 
           <Route path="/journey" element={<Journey />} />
+
+          {/* ================= KNOWLEDGE ================= */}
+
+          <Route path="/knowledge" element={<KnowledgeGlobal />} />
 
           {/* ================= SEGMENTS ================= */}
 

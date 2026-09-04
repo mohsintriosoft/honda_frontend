@@ -185,7 +185,11 @@ function mapRecordingApiToRecording(session: any): Recording {
 
   return {
     id: String(session.id),
-    file: session.recording_mixed || session.recording_stereo || `session_${session.id}.wav`,
+    file: getFileName(
+      session.recording_mixed ||
+      session.recording_stereo ||
+      `session_${session.id}.wav`
+    ),
     customer: customerName,
     agentName,
     phone: session.phone ?? "unknown",
@@ -658,12 +662,6 @@ export default function RecordingsPage() {
               </Link>
             </Button>
 
-            <Button size="sm" asChild>
-              <Link to="/agents/recordings/review">
-                <ClipboardCheck className="size-4" />
-                Review queue ({pending})
-              </Link>
-            </Button>
           </div>
         }
       />
@@ -694,22 +692,7 @@ export default function RecordingsPage() {
               // fallback so the number doesn't look wrong offline.
               v: `${totalFromApi !== null ? totalHours(items).toFixed(0) : (LIBRARY_TOTAL * 0.068 + totalHours(items)).toFixed(0)} h`,
               i: Clock,
-            },
-            {
-              l: "Need module review",
-              v: String(unclassified.length),
-              i: ShieldAlert,
-            },
-            {
-              l: "Mined suggestions", // NOT DYNAMIC
-              v: String(minedSuggestions.length),
-              i: Sparkles,
-            },
-            {
-              l: "Pending review", // NOT DYNAMIC
-              v: String(pending),
-              i: ClipboardCheck,
-            },
+            }
           ].map((k) => (
             <Card key={k.l}>
               <CardContent className="pt-6 flex items-center gap-3">
@@ -887,206 +870,6 @@ export default function RecordingsPage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* ==================================================
-            Needs classification
-        ================================================== */}
-
-        <Card>
-          <CardHeader>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div>
-                <CardTitle className="text-base flex items-center gap-2">
-                  <ShieldAlert className="size-4 text-destructive" />
-                  Needs classification ({unclassified.length})
-                </CardTitle>
-
-                <CardDescription>
-                  Calls with no module tag, or an AI guess below {CONFIDENCE_THRESHOLD}% confidence.
-                  They are excluded from training until confirmed. Rows loaded from the live API
-                  already carry a confirmed module (from Segment), so this list will mostly show
-                  manually-uploaded recordings.
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent className="p-0">
-            {unclassified.length === 0 ? (
-              <p className="px-4 pb-4 text-sm text-muted-foreground">
-                Every call in the library has a confirmed module.
-              </p>
-            ) : (
-              <div className="divide-y">
-                {unclassified.slice(0, 8).map((r) => (
-                  <div key={r.id} className="flex flex-wrap items-start justify-between gap-3 p-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sm">{r.customer}</span>
-
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          {r.file}
-                        </span>
-                      </div>
-
-                      <p className="mt-1 max-w-xl truncate text-xs text-muted-foreground">
-                        "{r.transcript[1]?.text ?? r.transcript[0]?.text}"
-                      </p>
-
-                      <div className="mt-1 text-[11px] text-muted-foreground">
-                        {r.moduleEvidence}
-                      </div>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      {MODULES.map((m) => (
-                        <Button
-                          key={m}
-                          size="sm"
-                          variant={
-                            r.moduleSource === "ai" && r.module === m ? "secondary" : "outline"
-                          }
-                          className="h-7 px-2 text-xs"
-                          onClick={() => setModule(r.id, m)}
-                        >
-                          {r.moduleSource === "ai" && r.module === m && (
-                            <Check className="size-3" />
-                          )}
-
-                          {WORKFLOW_LABEL[m]}
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {unclassified.length > 8 && (
-              <div className="px-4 py-3 text-xs text-muted-foreground">
-                Showing 8 of {unclassified.length} • filter the library by "Needs module review" to
-                see them all
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ==================================================
-            Training run — NOT DYNAMIC (see notes at top of file)
-        ================================================== */}
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Train an agent from these calls</CardTitle>
-
-            <CardDescription>
-              Only calls with a confirmed module and approved suggestions from the review queue are
-              used. The progress simulation and "Recent training runs" list below are still mocked
-              — there's no TrainingRun table in the backend yet.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 md:grid-cols-[minmax(0,300px)_1fr] md:items-end">
-              <div className="space-y-1.5">
-                <Label>Target agent</Label>
-
-                <Select value={trainAgent} onValueChange={setTrainAgent}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-
-                  <SelectContent>
-                    {agents.map((a) => (
-                      <SelectItem key={a.id} value={a.id}>
-                        {a.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={runTraining} disabled={step >= 0 && !done}>
-                  <Rocket className="size-4" />
-                  Train from {formatNumber(trainable.length)} calls
-                </Button>
-
-                <span className="text-xs text-muted-foreground">
-                  {trainedAgent.version} → {bump(trainedAgent.version)} •{" "}
-                  {minedSuggestions.filter((s) => s.targetAgentId === trainAgent).length} items
-                  ready
-                </span>
-              </div>
-            </div>
-
-            {filtered.length - trainable.length > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs">
-                <ShieldAlert className="size-4 shrink-0 text-destructive" />
-
-                <span>
-                  {formatNumber(filtered.length - trainable.length)} calls excluded — module
-                  unconfirmed. Confirm them in "Needs classification" above so they train the right
-                  agent.
-                </span>
-              </div>
-            )}
-
-            {step >= 0 && <TrainingRunProgress step={step} progress={progress} />}
-
-            {done && (
-              <div className="grid gap-3 sm:grid-cols-4">
-                {[
-                  {
-                    l: "Intent accuracy",
-                    v: `${trainedAgent.metrics.intentAccuracy}% → ${Math.min(
-                      99,
-                      trainedAgent.metrics.intentAccuracy + 5,
-                    )}%`,
-                  },
-                  {
-                    l: "New intents learned",
-                    v: "6",
-                  },
-                  {
-                    l: "Objection coverage",
-                    v: "87%",
-                  },
-                  {
-                    l: "Version",
-                    v: `${trainedAgent.version} → ${bump(trainedAgent.version)}`,
-                  },
-                ].map((m) => (
-                  <div key={m.l} className="rounded-lg border p-3">
-                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                      {m.l}
-                    </div>
-
-                    <div className="mt-1 text-sm font-semibold tabular-nums">{m.v}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="rounded-lg border divide-y">
-              {trainingRuns.map((r) => (
-                <div
-                  key={r.id}
-                  className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm"
-                >
-                  <span>{agents.find((a) => a.id === r.agentId)?.name ?? r.agentId}</span>
-
-                  <span className="text-xs text-muted-foreground">
-                    {r.fromCalls} calls • {r.items} items • {r.fromVersion} → {r.toVersion} •
-                    accuracy {r.accuracyBefore}% → {r.accuracyAfter}%
-                  </span>
-
-                  <span className="text-xs text-muted-foreground">{r.ranAt}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       {/* ==================================================
@@ -1168,40 +951,6 @@ export default function RecordingsPage() {
                   )}
                 </div>
 
-                {/* Classification */}
-                <ClassificationPanel r={open} onOverride={setModule} />
-
-                {/* Sentiment — NOT DYNAMIC, no backend field */}
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
-                    Sentiment
-                  </div>
-
-                  {open.sentiment.length > 0 ? (
-                    <SentimentStrip points={open.sentiment} />
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      Not available — CallSession has no sentiment field.
-                    </p>
-                  )}
-                </div>
-
-                {/* Intents / objections */}
-                <div className="flex flex-wrap gap-1.5">
-                  {open.detectedIntents.map((intent) => (
-                    <Badge key={intent} variant="outline" className="font-mono text-[10px]">
-                      {intent}
-                    </Badge>
-                  ))}
-
-                  {/* NOT DYNAMIC — no objections field on the backend */}
-                  {open.objectionsRaised.map((objection) => (
-                    <Badge key={objection} variant="secondary" className="text-[10px]">
-                      "{objection}"
-                    </Badge>
-                  ))}
-                </div>
-
                 {/* Transcript */}
                 <div>
                   <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
@@ -1211,13 +960,6 @@ export default function RecordingsPage() {
                   <TranscriptViewer turns={open.transcript} />
                 </div>
 
-                {/* Mine training */}
-                <Button className="w-full" asChild>
-                  <Link to="/agents/recordings/review">
-                    <Sparkles className="size-4" />
-                    Mine this call into training data
-                  </Link>
-                </Button>
               </div>
             </>
           )}

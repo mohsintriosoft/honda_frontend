@@ -12,12 +12,6 @@ export default function SegmentsPage() {
       <PageHeader
         title="Customer Segments"
         description="Dynamic segments auto-update from your DMS. Click any segment to view customers and launch a campaign."
-        actions={
-          <Button size="sm">
-            <Sparkles className="size-4" />
-            Suggest segment
-          </Button>
-        }
       />
 
       <div className="p-4 md:p-6 lg:p-8">
