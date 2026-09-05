@@ -22,26 +22,16 @@ import {
 import { formatNumber } from "@/lib/format";
 import { get_intents, server_get_data } from "@/components/ServiceConnection/serviceconnection";
 
-type WorthLevel = "High" | "Medium" | "Low";
-
-const WORTH_STYLE: Record<WorthLevel, string> = {
-    High: "bg-destructive/10 text-destructive border-destructive/30",
-    Medium: "bg-[color:var(--warning,theme(colors.amber.500))]/10 text-amber-600 border-amber-500/30",
-    Low: "bg-muted text-muted-foreground border-muted-foreground/20",
-};
 
 interface IntentRow {
     code: string;
     label: string;
     description: string;
-    worth_level: WorthLevel;
-    worth_reason: string;
     total_turns: number;
     positives: number;
     negatives: number;
     accuracy: number;
     avg_confidence: number;
-    week_over_week_delta: number;
     top_confused_with: string | null;
     cache_updated_at: string | null;
 }
@@ -75,10 +65,6 @@ export default function IntentsPage() {
     const totalTurns = intents?.reduce((sum, i) => sum + i.total_turns, 0) ?? 0;
     const totalPositives = intents?.reduce((sum, i) => sum + i.positives, 0) ?? 0;
     const overallAccuracy = totalTurns > 0 ? Math.round((totalPositives / totalTurns) * 100) : 0;
-    const highWorthMismatches =
-        intents
-            ?.filter((i) => i.worth_level === "High")
-            .reduce((sum, i) => sum + i.negatives, 0) ?? 0;
 
     return (
         <>
@@ -98,7 +84,6 @@ export default function IntentsPage() {
                         { label: "Correct calls", value: formatNumber(totalPositives), icon: ThumbsUp },
                         {
                             label: "Mismatches on high-worth intents",
-                            value: formatNumber(highWorthMismatches),
                             icon: ShieldAlert,
                         },
                     ].map((item) => (
@@ -176,9 +161,6 @@ export default function IntentsPage() {
                                             <div className="min-w-0">
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <span className="font-display font-semibold">{intent.label}</span>
-                                                    <Badge variant="outline" className={WORTH_STYLE[intent.worth_level]}>
-                                                        {intent.worth_level} worth
-                                                    </Badge>
                                                 </div>
                                                 <div className="text-xs text-muted-foreground mt-1">
                                                     {intent.description}
@@ -189,27 +171,11 @@ export default function IntentsPage() {
                                             </div>
                                         </div>
 
-                                        <p className="text-[11px] text-muted-foreground leading-snug border-l-2 pl-2.5">
-                                            {intent.worth_reason}
-                                        </p>
+
 
                                         <div>
                                             <div className="flex items-center justify-between text-[11px] text-muted-foreground">
                                                 <span>Classifier accuracy</span>
-                                                <span className="flex items-center gap-1 tabular-nums">
-                                                    {intent.accuracy}%
-                                                    {intent.week_over_week_delta >= 0 ? (
-                                                        <span className="text-[color:var(--success)] flex items-center">
-                                                            <ArrowUpRight className="size-3" />
-                                                            {intent.week_over_week_delta}
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-destructive flex items-center">
-                                                            <ArrowDownRight className="size-3" />
-                                                            {Math.abs(intent.week_over_week_delta)}
-                                                        </span>
-                                                    )}
-                                                </span>
                                             </div>
                                             <Progress value={intent.accuracy} className="h-1.5 mt-1" />
                                         </div>
