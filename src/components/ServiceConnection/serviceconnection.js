@@ -6,8 +6,8 @@ import { retrieveData } from "../LocalConnection/LocalConnection.js";
 ========================================================= */
 
 let APL_LINK = "http://192.168.1.9/wowreviews_final/";
-//APL_LINK = "http://localhost:8000/";
-APL_LINK = "https://omhonda.triosoft.ai/";
+APL_LINK = "http://localhost:8000/";
+// APL_LINK = "https://omhonda.triosoft.ai/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
 
@@ -56,6 +56,13 @@ const campaign_pause = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/p
 const campaign_pause_clear = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/pause-clear/`;
 const campaign_resume = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/resume/`;
 const get_campaign_batches = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/batches/`;
+
+// Intent Accuracy — kept as two endpoints on purpose: the index page only
+// ever calls get_intents (a cheap per-intent rollup), never get_intent_turns.
+// get_intent_turns is only hit once a card is opened (the /intents/:code page).
+const get_intents = APL_LINK + "api/intents/";
+const get_intent_summary = (code) => `${APL_LINK}api/intents/?code=${code}`;
+const get_intent_turns = (code) => `${APL_LINK}api/intents/${code}/turns/`;
 
 
 /* =========================================================
@@ -669,6 +676,10 @@ export {
   campaign_pause_clear,
   campaign_resume,
   get_campaign_batches,
+  // NEW — intent accuracy (index = summary rollup only, detail = per-intent turns)
+  get_intents,
+  get_intent_summary,
+  get_intent_turns,
   // Basic Methods
   server_get_data,
   server_post_data,

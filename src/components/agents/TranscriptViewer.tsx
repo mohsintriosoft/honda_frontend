@@ -5,20 +5,27 @@ export function TranscriptViewer({ turns }: { turns: TranscriptTurn[] }) {
   return (
     <div className="space-y-2">
       {turns.map((t, i) => (
-        <div
-          key={i}
-          className={cn(
-            "flex flex-col gap-0.5 rounded-lg border p-3 max-w-[92%]",
-            t.speaker === "agent"
-              ? "bg-primary/5 border-primary/20"
-              : "ml-auto bg-muted/50",
+        <div key={i} className="flex flex-col gap-1">
+
+          {t.speaker === "agent" && t.filler && (
+            <div className="ml-1 text-[10px] italic text-muted-foreground">
+              filler: {t.filler}
+            </div>
           )}
-        >
-          <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
-            <span>{t.speaker === "agent" ? "Agent" : "Customer"}</span>
-            <span className="tabular-nums">{t.t}</span>
+          <div
+            className={cn(
+              "flex flex-col gap-0.5 rounded-lg border p-3 max-w-[92%]",
+              t.speaker === "agent"
+                ? "bg-primary/5 border-primary/20"
+                : "ml-auto bg-muted/50",
+            )}
+          >
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-wide text-muted-foreground">
+              <span>{t.speaker === "agent" ? "Agent" : "Customer"}</span>
+              <span className="tabular-nums">{t.at}</span>
+            </div>
+            <p className="text-sm">{t.text}</p>
           </div>
-          <p className="text-sm">{t.text}</p>
         </div>
       ))}
     </div>

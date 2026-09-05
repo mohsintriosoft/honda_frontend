@@ -170,6 +170,10 @@ function mapRecordingApiToRecording(session: any): Recording {
       speaker: t.speaker === "bot" ? "agent" : "customer",
       text: t.text ?? "",
       at: t.at ?? t.timestamp ?? "",
+      // 🔥 NEW: filler line (bot turns only) — save_turn() now writes this
+      // onto the transcript entry alongside speaker/text/at (see backend
+      // views.py). Optional, so older sessions without it fall back to "".
+      filler: t.filler ?? "",
     }))
     : [];
 

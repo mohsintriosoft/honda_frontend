@@ -7,11 +7,12 @@ export type RecordingStatus = "queued" | "transcribing" | "mined" | "reviewed" |
 export type CallOutcome = "booked" | "callback" | "not_interested" | "no_answer" | "complaint";
 export type IngestSource = "upload" | "manifest" | "dialer";
 
-export interface TranscriptTurn {
-  t: string;
+export type TranscriptTurn = {
   speaker: "agent" | "customer";
   text: string;
-}
+  at: string;
+  filler?: string;   // 🔥 NEW
+};
 
 /** How the workflow/module of a recording was determined. */
 export type ModuleSource = "metadata" | "crm" | "ai" | "manual" | "unknown";
