@@ -72,7 +72,13 @@ import { WORKFLOW_LABEL, agents, type AgentWorkflow } from "@/mocks/agents";
 
 import { formatNumber } from "@/lib/format";
 
-import { get_recordings, server_get_data, APL_LINK, AUDIO_BASE_URL } from "@/components/ServiceConnection/serviceconnection";
+import {
+  get_recordings,
+  get_recording_detail,
+  server_get_data,
+  APL_LINK,
+  AUDIO_BASE_URL,
+} from "@/components/ServiceConnection/serviceconnection";
 
 import {
   ArrowLeft,
@@ -89,9 +95,16 @@ import {
   ShieldAlert,
   Check,
   Loader2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 const MODULES: AgentWorkflow[] = ["sales", "service", "insurance", "amc", "winback", "feedback"];
+
+// How many rows we pull from the backend per request. Keep this small —
+// this is what actually protects the DB. Raising this back up to 200
+// (like the old page_size did) defeats the point of paginating at all.
+const PAGE_SIZE = 25;
 
 const STATUS_TONE: Record<Recording["status"], string> = {
   queued: "bg-secondary text-muted-foreground",
@@ -231,11 +244,25 @@ export default function RecordingsPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [totalFromApi, setTotalFromApi] = useState<number | null>(null);
 
+  // Pagination — page is 1-indexed to match DRF's PageNumberPagination.
+  const [page, setPage] = useState(1);
+
   const [moduleFilter, setModuleFilter] = useState<string>("all");
 
   const [outcomeFilter, setOutcomeFilter] = useState<string>("all");
 
   const [q, setQ] = useState("");
+
+  // Debounced search — the input above updates `q` on every keystroke for
+  // instant UI feedback, but the network request (and therefore the DB
+  // query) only fires ~400ms after the user stops typing. Without this,
+  // "customer name" would be 15 separate list requests instead of 1.
+  const [debouncedQ, setDebouncedQ] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQ(q.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [q]);
 
   const [classFilter, setClassFilter] = useState<string>("all");
 
@@ -252,6 +279,11 @@ export default function RecordingsPage() {
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioError, setAudioError] = useState<string | null>(null);
 
+  // The <audio> element only gets a `src` once this flips true. Until then
+  // the browser has nothing to fetch — opening the drawer does NOT pull the
+  // audio file, only clicking Play does.
+  const [audioReady, setAudioReady] = useState(false);
+
   // Reset playback state whenever a different recording is opened, and stop
   // playback when the drawer closes.
   useEffect(() => {
@@ -259,6 +291,7 @@ export default function RecordingsPage() {
     setCurrentTime(0);
     setAudioDuration(0);
     setAudioError(null);
+    setAudioReady(false);
 
     const audio = audioRef.current;
 
@@ -277,12 +310,39 @@ export default function RecordingsPage() {
 
     if (isPlaying) {
       audio.pause();
-    } else {
-      void audio.play().catch(() => {
-        setAudioError("Couldn't play this recording — the file may be unavailable.");
-      });
+      return;
     }
+
+    if (!audioReady) {
+      // First tap on Play for this recording — this is the moment the
+      // audio file is actually requested from the server. The effect
+      // below fires playback once the <audio> element has picked up the
+      // new src (setting React state doesn't update the DOM until the
+      // next render, so we can't just call audio.play() here).
+      setAudioReady(true);
+      return;
+    }
+
+    void audio.play().catch(() => {
+      setAudioError("Couldn't play this recording — the file may be unavailable.");
+    });
   };
+
+  useEffect(() => {
+    if (!audioReady) {
+      return;
+    }
+
+    const audio = audioRef.current;
+
+    if (!audio) {
+      return;
+    }
+
+    void audio.play().catch(() => {
+      setAudioError("Couldn't play this recording — the file may be unavailable.");
+    });
+  }, [audioReady]);
 
   const seekTo = (ratio: number) => {
     const audio = audioRef.current;
@@ -300,6 +360,18 @@ export default function RecordingsPage() {
 
   // --------------------------------------------------
   // Fetch real recordings (CallSession rows) from the API
+  //
+  // Only ONE page worth of rows is ever requested. Re-runs whenever page,
+  // search, module, or outcome change (see the dependency array below), so
+  // the backend only ever has to plan a query for PAGE_SIZE rows instead
+  // of the whole table.
+  //
+  // The list serializer (_serialize_recording_summary in views_admin.py)
+  // deliberately leaves out `transcript` / `intent_history` / `call_summary`
+  // — that's the expensive part per row. Full detail, transcript included,
+  // is fetched separately, one recording at a time, only when its row is
+  // opened (see the detail effect below, which hits GET /api/recordings/:id/,
+  // handled by recording_detail() on the backend).
   // --------------------------------------------------
 
   useEffect(() => {
@@ -310,7 +382,18 @@ export default function RecordingsPage() {
       setFetchError(null);
 
       try {
-        const data = await server_get_data(get_recordings, { page_size: 200 });
+        const data = await server_get_data(get_recordings, {
+          page,
+          page_size: PAGE_SIZE,
+          // Backend now filters these server-side (see recordings() in
+          // views_admin.py) instead of us pulling extra pages and
+          // filtering in JS. classFilter has no backend equivalent yet
+          // (it's derived from moduleSource/confidence, not a DB column),
+          // so that one still only narrows the current page below.
+          ...(debouncedQ ? { search: debouncedQ } : {}),
+          ...(moduleFilter !== "all" ? { module: moduleFilter } : {}),
+          ...(outcomeFilter !== "all" ? { outcome: outcomeFilter } : {}),
+        });
 
         // Supports either a plain array or DRF pagination shape
         // ({ count, results }) without caring which one the backend uses.
@@ -329,7 +412,7 @@ export default function RecordingsPage() {
           setFetchError(
             "Couldn't reach the recordings API — showing sample data instead.",
           );
-          setItems(seedRecordings);
+          setItems(seedRecordings.slice(0, PAGE_SIZE));
           setTotalFromApi(null);
         }
       } finally {
@@ -344,7 +427,77 @@ export default function RecordingsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, debouncedQ, moduleFilter, outcomeFilter]);
+
+  // Reset back to page 1 whenever a filter changes. Note: classFilter has
+  // no server-side equivalent (see the fetch effect above, and `filtered`
+  // below), so it only ever narrows whatever page is already loaded.
+  useEffect(() => {
+    setPage(1);
+  }, [moduleFilter, outcomeFilter, classFilter, debouncedQ]);
+
+  // --------------------------------------------------
+  // Fetch full recording detail (transcript, intents, etc.) on demand
+  //
+  // The list call above intentionally only carries summary fields. The
+  // heavy per-row data — transcript turns — is pulled here, one recording
+  // at a time, only when the user opens that row's drawer. Closing the
+  // drawer and opening a different row triggers a fresh, separate fetch;
+  // nothing is bulk-loaded up front.
+  // --------------------------------------------------
+
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open?.id) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function fetchDetail() {
+      setDetailLoading(true);
+      setDetailError(null);
+
+      try {
+        const session = await server_get_data(get_recording_detail(open!.id));
+        const detailed = mapRecordingApiToRecording(session);
+
+        if (cancelled) {
+          return;
+        }
+
+        // Merge in only the fields the list endpoint doesn't already have
+        // (transcript + anything derived from it), so anything the user
+        // has locally set on this row in the meantime — e.g. a manual
+        // module override via setModule — isn't clobbered.
+        const patch = {
+          transcript: detailed.transcript,
+          detectedIntents: detailed.detectedIntents,
+        };
+
+        setOpen((current) => (current && current.id === open!.id ? { ...current, ...patch } : current));
+        setItems((all) => all.map((r) => (r.id === open!.id ? { ...r, ...patch } : r)));
+      } catch (err) {
+        console.error("Failed to load recording detail:", err);
+
+        if (!cancelled) {
+          setDetailError("Couldn't load the transcript for this recording.");
+        }
+      } finally {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      }
+    }
+
+    fetchDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open?.id]);
 
   // --------------------------------------------------
   // Module mapping controls
@@ -378,6 +531,13 @@ export default function RecordingsPage() {
 
   const unclassified = useMemo(() => items.filter(needsClassification), [items]);
 
+  // Module, outcome, and search are now filtered server-side (passed as
+  // query params in the fetch effect above), so this mostly re-applies the
+  // same filters to what's already a matching page — cheap, and keeps the
+  // UI correct instantly while a debounced search request is in flight.
+  // classFilter is the one exception: "needs review" isn't a DB column,
+  // it's derived from moduleSource/confidence, so it only ever filters
+  // within the current page.
   const filtered = useMemo(
     () =>
       items.filter((r) => {
@@ -813,7 +973,11 @@ export default function RecordingsPage() {
                 </TableHeader>
 
                 <TableBody>
-                  {filtered.slice(0, 25).map((r) => (
+                  {/* No client-side slicing here anymore — `items` already
+                      IS one backend page (PAGE_SIZE rows). Filters below
+                      only narrow within that page; see the note above
+                      `filtered` for what server-side filtering would take. */}
+                  {filtered.map((r) => (
                     <TableRow key={r.id} className="cursor-pointer" onClick={() => setOpen(r)}>
                       <TableCell>
                         <div className="font-medium">{r.customer}</div>
@@ -868,9 +1032,35 @@ export default function RecordingsPage() {
               </Table>
             </div>
 
-            <div className="px-4 py-3 text-xs text-muted-foreground">
-              Showing {Math.min(25, filtered.length)} of {formatNumber(filtered.length)} filtered •{" "}
-              {formatNumber(libraryTotal)} total in archive
+            <div className="flex items-center justify-between px-4 py-3 text-xs text-muted-foreground">
+              <span>
+                Page {page} • {formatNumber(filtered.length)} of {formatNumber(items.length)} on this page match filters •{" "}
+                {formatNumber(libraryTotal)} total in archive
+              </span>
+
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={page <= 1 || loading}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  <ChevronLeft className="size-3.5" />
+                  Prev
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  disabled={loading || items.length < PAGE_SIZE || (totalFromApi !== null && page * PAGE_SIZE >= totalFromApi)}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Next
+                  <ChevronRight className="size-3.5" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -907,8 +1097,11 @@ export default function RecordingsPage() {
                     {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                     <audio
                       ref={audioRef}
-                      src={getAudioSrc(open)}
-                      preload="metadata"
+                      // No src (and preload="none") until the user actually
+                      // hits Play — that's what stops every row render /
+                      // drawer open from silently pulling an audio file.
+                      src={audioReady ? getAudioSrc(open) : undefined}
+                      preload="none"
                       onLoadedMetadata={(e) => setAudioDuration(e.currentTarget.duration || 0)}
                       onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                       onPlay={() => setIsPlaying(true)}
@@ -955,11 +1148,19 @@ export default function RecordingsPage() {
                   )}
                 </div>
 
-                {/* Transcript */}
+                {/* Transcript — fetched lazily, only while this drawer is open */}
                 <div>
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-2">
                     Transcript
+                    {detailLoading && <Loader2 className="size-3.5 animate-spin" />}
                   </div>
+
+                  {detailError && (
+                    <div className="flex items-center gap-2 text-xs text-destructive mb-2">
+                      <ShieldAlert className="size-3.5 shrink-0" />
+                      <span>{detailError}</span>
+                    </div>
+                  )}
 
                   <TranscriptViewer turns={open.transcript} />
                 </div>
