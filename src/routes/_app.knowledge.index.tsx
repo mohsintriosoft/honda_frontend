@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,19 +27,13 @@ import { handleError } from "@/components/CommonJquery/CommonJquery";
 
 const isValidCategorySource = (value: string) => /^[a-zA-Z0-9_]+$/.test(value);
 
-// 🔥 The 4 real KnowledgeCollections (backend: kb_{dealer.code}_{slug}).
-// This is NOT the 7-segment list and NOT the full MODULE_CHOICES enum on
-// Segment/LLMSetting — those have sales/winback/feedback values that have
-// no corresponding KnowledgeCollection row, which is why picking them used
-// to fail silently on save (module_to_collection_slug() had nothing to
-// resolve them to). Keep this in sync with KnowledgeCollection, not with
-// MODULE_CHOICES.
-const COLLECTION_OPTIONS: { value: string; label: string }[] = [
-    { value: "general", label: "Common Info (Global)" },
-    { value: "service", label: "Service Rate Card" },
-    { value: "insurance", label: "Insurance Info" },
-    { value: "amc", label: "AMC Plans" },
-];
+// 🔥 CHANGED — "Module" no longer means a KnowledgeCollection. It now means
+// one of the 7 real Segments, or Global. The backend resolves which of the
+// 4 KnowledgeCollections a document lands in from the chosen segment's own
+// `module` (service/insurance/amc) — Global always resolves server-side to
+// the "common" collection (kb_{dealer.code}_common). The panel never
+// sends or shows a collection anymore; it only ever picks a Segment (or Global).
+const GLOBAL_MODULE_VALUE = "global";
 
 interface Branch {
     id: number;
@@ -62,15 +57,14 @@ interface KnowledgeFormState {
     content: string;
     category: string;
     sourceDoc: string;
-    module: string;             // which of the 4 KnowledgeCollections
-    segmentIds: number[];       // optional override — which of the 7 segments
+    moduleId: number | null;    // which Segment this document serves; null => Global
     branchId: number | null;    // null => Global branch (applies to every branch)
     metadata: MetadataRow[];
 }
 
 const EMPTY_FORM: KnowledgeFormState = {
     docId: "", title: "", content: "", category: "", sourceDoc: "",
-    module: "general", segmentIds: [], branchId: null, metadata: [],
+    moduleId: null, branchId: null, metadata: [],
 };
 
 export default function KnowledgeGlobal() {
@@ -93,6 +87,13 @@ export default function KnowledgeGlobal() {
     // Filters — "" means "All"; branch filter additionally accepts "global".
     const [filterModule, setFilterModule] = useState<string>("");
     const [filterBranch, setFilterBranch] = useState<string>("");
+
+    // Arriving from the agent page's per-card "Edit in Knowledge" button:
+    // location.state.editDocId opens that document's edit form directly,
+    // once its data has loaded into `items`. Consumed once so navigating
+    // back here later (or closing the form) doesn't reopen it.
+    const location = useLocation();
+    const [consumedEditDocId, setConsumedEditDocId] = useState(false);
 
     useEffect(() => {
         (async () => {
@@ -141,7 +142,7 @@ export default function KnowledgeGlobal() {
         setLoading(true);
         try {
             const params: Record<string, any> = { dealer_id: dealerId };
-            if (filterModule) params.module = filterModule;
+            if (filterModule) params.segment_id = filterModule;
 
             const res = await server_get_data(get_kb_documents, params);
             let docs = res?.documents ?? [];
@@ -170,6 +171,19 @@ export default function KnowledgeGlobal() {
         loadDocs();
     }, [dealerId, filterModule, filterBranch]);
 
+    // Once the target document has loaded into `items`, open its edit form —
+    // same as clicking that card's own Edit button.
+    useEffect(() => {
+        const editDocId = (location.state as { editDocId?: string } | null)?.editDocId;
+        if (!editDocId || consumedEditDocId || loading) return;
+
+        const target = items.find((item: any) => item.doc_id === editDocId);
+        if (!target) return; // not loaded yet, or filtered out — try again once items/filters settle
+
+        openEdit(target);
+        setConsumedEditDocId(true);
+    }, [location.state, items, loading, consumedEditDocId]);
+
     function openAdd() {
         setEditingDocId(null);
         setForm(EMPTY_FORM);
@@ -188,8 +202,7 @@ export default function KnowledgeGlobal() {
             content: item.content ?? "",
             category: item.category ?? "",
             sourceDoc: (item.source ?? "").replace(/\.pdf$/, ""),
-            module: item.module ?? "general",
-            segmentIds: Array.isArray(item.segment_ids) ? item.segment_ids : [],
+            moduleId: item.is_global ? null : item.segment_id ?? null,
             branchId: Array.isArray(item.branch_ids) && item.branch_ids.length ? item.branch_ids[0] : null,
             metadata: metadataRows,
         });
@@ -205,19 +218,10 @@ export default function KnowledgeGlobal() {
     }
 
     function fieldChange(
-        field: keyof Omit<KnowledgeFormState, "metadata" | "branchId" | "segmentIds">,
+        field: keyof Omit<KnowledgeFormState, "metadata" | "branchId" | "moduleId">,
         value: string,
     ) {
         setForm((prev) => ({ ...prev, [field]: value }));
-    }
-
-    function toggleSegment(segmentId: number) {
-        setForm((prev) => ({
-            ...prev,
-            segmentIds: prev.segmentIds.includes(segmentId)
-                ? prev.segmentIds.filter((id) => id !== segmentId)
-                : [...prev.segmentIds, segmentId],
-        }));
     }
 
     function addMetadataRow() {
@@ -271,8 +275,7 @@ export default function KnowledgeGlobal() {
 
         const payload = {
             dealer_id: dealerId,
-            module: form.module || "general",
-            segment_ids: form.segmentIds,
+            segment_id: form.moduleId, // null => Global
             branch_ids: form.branchId ? [form.branchId] : [],
             doc_id: form.docId || undefined,
             title: form.title,
@@ -314,7 +317,7 @@ export default function KnowledgeGlobal() {
         <>
             <PageHeader
                 title="Knowledge Base"
-                description="Manage knowledge sources across the 4 collections and 7 segments — scope each one to a branch or make it global."
+                description="Manage knowledge sources by module — tag each one to a segment, or make it Global, and scope it to a branch."
                 actions={
                     <Button size="sm" onClick={openAdd}>
                         <Plus className="size-4" /> Add
@@ -327,16 +330,17 @@ export default function KnowledgeGlobal() {
                     <CardContent className="pt-6">
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-1.5">
-                                <Label>Filter by collection</Label>
+                                <Label>Filter by module</Label>
                                 <select
                                     className="w-full h-9 rounded-md border px-3 text-sm bg-background"
                                     value={filterModule}
                                     onChange={(event) => setFilterModule(event.target.value)}
                                 >
-                                    <option value="">All collections</option>
-                                    {COLLECTION_OPTIONS.map((option) => (
-                                        <option key={option.value} value={option.value}>
-                                            {option.label}
+                                    <option value="">All modules</option>
+                                    <option value={GLOBAL_MODULE_VALUE}>Global</option>
+                                    {segments.map((segment) => (
+                                        <option key={segment.id} value={segment.id}>
+                                            {segment.name}
                                         </option>
                                     ))}
                                 </select>
@@ -393,22 +397,29 @@ export default function KnowledgeGlobal() {
 
                             <div className="grid gap-4 md:grid-cols-2">
                                 <div className="space-y-1.5">
-                                    <Label>Collection <span className="text-destructive">*</span></Label>
+                                    <Label>Module <span className="text-destructive">*</span></Label>
                                     <select
                                         className="w-full h-9 rounded-md border px-3 text-sm bg-background"
-                                        value={form.module}
+                                        value={form.moduleId ?? GLOBAL_MODULE_VALUE}
                                         onChange={(event) =>
-                                            setForm((prev) => ({ ...prev, module: event.target.value }))
+                                            setForm((prev) => ({
+                                                ...prev,
+                                                moduleId:
+                                                    event.target.value === GLOBAL_MODULE_VALUE
+                                                        ? null
+                                                        : Number(event.target.value),
+                                            }))
                                         }
                                     >
-                                        {COLLECTION_OPTIONS.map((option) => (
-                                            <option key={option.value} value={option.value}>
-                                                {option.label}
+                                        <option value={GLOBAL_MODULE_VALUE}>Global</option>
+                                        {segments.map((segment) => (
+                                            <option key={segment.id} value={segment.id}>
+                                                {segment.name}
                                             </option>
                                         ))}
                                     </select>
                                     <p className="text-xs text-muted-foreground">
-                                        Which vector store this document is indexed into.
+                                        Which segment this document serves — pick Global to apply it everywhere.
                                     </p>
                                 </div>
 
@@ -435,39 +446,6 @@ export default function KnowledgeGlobal() {
                                         Leave as "Global" to apply this to every branch.
                                     </p>
                                 </div>
-                            </div>
-
-                            <div className="space-y-1.5">
-                                <Label>Segments</Label>
-                                <div className="flex flex-wrap gap-2 rounded-md border border-dashed p-3">
-                                    {segments.length === 0 ? (
-                                        <p className="text-xs text-muted-foreground">
-                                            Loading segments…
-                                        </p>
-                                    ) : (
-                                        segments.map((segment) => {
-                                            const active = form.segmentIds.includes(segment.id);
-                                            return (
-                                                <button
-                                                    key={segment.id}
-                                                    type="button"
-                                                    onClick={() => toggleSegment(segment.id)}
-                                                    className={
-                                                        active
-                                                            ? "rounded-full border border-primary bg-primary px-3 py-1 text-xs text-primary-foreground"
-                                                            : "rounded-full border px-3 py-1 text-xs text-muted-foreground"
-                                                    }
-                                                >
-                                                    {segment.name}
-                                                </button>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                                <p className="text-xs text-muted-foreground">
-                                    Optional. Leave empty to inherit the collection's default segments — pick specific
-                                    segments only when this document should apply more narrowly.
-                                </p>
                             </div>
 
                             <div className="space-y-1.5">
@@ -589,17 +567,13 @@ export default function KnowledgeGlobal() {
 
                     {!loading &&
                         items.map((item: any) => {
-                            const collectionLabel =
-                                COLLECTION_OPTIONS.find((option) => option.value === item.module)?.label ?? item.module;
+                            const moduleLabel = item.is_global
+                                ? "Global"
+                                : segments.find((s) => s.id === item.segment_id)?.name ?? "Unknown module";
                             const branchLabel =
                                 Array.isArray(item.branch_ids) && item.branch_ids.length
                                     ? branches.find((b) => b.id === item.branch_ids[0])?.name ?? "Unknown branch"
                                     : "Global (all branches)";
-                            const segmentLabels: string[] = Array.isArray(item.segment_ids)
-                                ? item.segment_ids
-                                    .map((id: number) => segments.find((s) => s.id === id)?.name)
-                                    .filter(Boolean)
-                                : [];
 
                             return (
                                 <Card key={item.doc_id}>
@@ -609,11 +583,8 @@ export default function KnowledgeGlobal() {
                                             <Badge variant="outline">{item.status}</Badge>
                                         </div>
                                         <div className="flex flex-wrap items-center gap-1.5">
-                                            <Badge variant="secondary">{collectionLabel}</Badge>
+                                            <Badge variant="secondary">{moduleLabel}</Badge>
                                             <Badge variant="secondary">{branchLabel}</Badge>
-                                            {segmentLabels.map((label) => (
-                                                <Badge key={label} variant="outline">{label}</Badge>
-                                            ))}
                                         </div>
                                         <div className="text-xs text-muted-foreground">
                                             {item.category} • {item.chunk_count} chunks

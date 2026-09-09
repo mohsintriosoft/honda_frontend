@@ -27,6 +27,8 @@ import {
   get_llm_settings,
   get_tts_voices,
   get_agent_knowledge,
+  get_branches,
+  get_segments,
 } from "@/components/ServiceConnection/serviceconnection";
 import { handleError } from "@/components/CommonJquery/CommonJquery";
 
@@ -132,22 +134,28 @@ const DEFAULT_EXTRAS: AgentExtras = {
 };
 
 /* -------------------------------------------------------------------------- */
-/* Knowledge — read-only, via segments (docs §9.9)                           */
+/* Knowledge — read-only here, via segments (docs §9.9)                      */
 /* -------------------------------------------------------------------------- */
 /*
- * Editing knowledge NEVER happens inside an agent. This page only shows the
- * collections reachable through the agent's segments (GET /api/agents/{id}
- * /knowledge/) and links out to the Knowledge module, which is the single
- * place writes happen and the single place can_edit_knowledge is enforced.
+ * Editing knowledge NEVER happens inside an agent — this tab only displays
+ * the documents reachable through the agent's segments (GET /api/agents/{id}
+ * /knowledge/, same per-document shape kb_get_all/_serialize_document use in
+ * views_rag.py). Each card's "Edit in Knowledge" button navigates to the
+ * Knowledge module — the single place writes happen and the single place
+ * can_edit_knowledge is enforced — carrying the doc_id so that page opens
+ * straight into that document's edit form.
  */
 
-export interface AgentKnowledgeCollection {
-  id: number;
-  name: string;
-  slug: string;
-  doc_count: number;
+export interface AgentKnowledgeDocument {
+  doc_id: string;
+  title: string;
+  category: string;
+  segment_id: number | null;
+  is_global: boolean;
+  branch_ids: number[];
+  status: string;
   chunk_count: number;
-  segments: string[]; // segment names this collection is tagged to
+  indexed_at: string | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -325,16 +333,37 @@ function AgentDetailContent({
   /* Knowledge tab — read only, via segments (docs §9.9)                    */
   /* ---------------------------------------------------------------------- */
 
-  const [agentKnowledge, setAgentKnowledge] = useState<AgentKnowledgeCollection[]>([]);
+  const [agentKnowledge, setAgentKnowledge] = useState<AgentKnowledgeDocument[]>([]);
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
+
+  // Only needed to label each card's module/branch badges the same way the
+  // Knowledge Base page does — no writes happen from here.
+  const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
+  const [segments, setSegments] = useState<{ id: number; name: string }[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [branchesRes, segmentsRes] = await Promise.all([
+          server_get_data(get_branches, { dealer_id: setting.dealer_id }),
+          server_get_data(get_segments, { dealer_id: setting.dealer_id }),
+        ]);
+        setBranches(branchesRes?.branches ?? []);
+        setSegments(segmentsRes?.segments ?? []);
+      } catch (error) {
+        console.error("Failed to load branches/segments:", error);
+        handleError("network");
+      }
+    })();
+  }, [setting.dealer_id]);
 
   async function loadAgentKnowledge() {
     setKnowledgeLoading(true);
     setKnowledgeError(null);
     try {
       const res = await server_get_data(get_agent_knowledge(agentId));
-      setAgentKnowledge(Array.isArray(res?.collections) ? res.collections : []);
+      setAgentKnowledge(Array.isArray(res?.documents) ? res.documents : []);
     } catch (error) {
       console.error("Failed to load agent knowledge:", error);
       handleError("network");
@@ -669,11 +698,15 @@ function AgentDetailContent({
               Read-only, per docs §9.9: "The Edit action navigates to the
               Knowledge module. Editing never happens inside an agent, so
               there is exactly one place where knowledge changes — and one
-              permission (can_edit_knowledge) guarding it."
+              permission (can_edit_knowledge) guarding it." Cards mirror the
+              Knowledge Base page's cards exactly (same badges, same
+              category • chunks • indexed_at line); each one's own
+              "Edit in Knowledge" button carries that document's id so the
+              Knowledge page opens straight into its edit form.
             */}
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Collections reachable through this agent's segments.
+                Documents reachable through this agent's segments.
               </p>
               <Button variant="outline" size="sm" asChild>
                 <Link to="/knowledge">
@@ -702,32 +735,54 @@ function AgentDetailContent({
             {!knowledgeLoading && !knowledgeError && agentKnowledge.length === 0 && (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No knowledge collections are tagged to this agent's segments yet.
+                  No knowledge documents are tagged to this agent's segments yet.
                 </CardContent>
               </Card>
             )}
 
-            {!knowledgeLoading &&
-              !knowledgeError &&
-              agentKnowledge.map((collection) => (
-                <Card key={collection.id}>
-                  <CardContent className="pt-6 flex items-center justify-between gap-4">
-                    <div className="space-y-1">
-                      <div className="font-medium text-sm">{collection.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {collection.doc_count} docs · {collection.chunk_count} chunks
-                      </div>
-                      <div className="flex flex-wrap gap-1.5 pt-1">
-                        {collection.segments.map((segmentName) => (
-                          <Badge key={segmentName} variant="outline">
-                            {segmentName}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="grid gap-3 md:grid-cols-2">
+              {!knowledgeLoading &&
+                !knowledgeError &&
+                agentKnowledge.map((item) => {
+                  const moduleLabel = item.is_global
+                    ? "Global"
+                    : segments.find((s) => s.id === item.segment_id)?.name ?? "Unknown module";
+                  const branchLabel =
+                    Array.isArray(item.branch_ids) && item.branch_ids.length
+                      ? branches.find((b) => b.id === item.branch_ids[0])?.name ?? "Unknown branch"
+                      : "Global (all branches)";
+
+                  return (
+                    <Card key={item.doc_id}>
+                      <CardContent className="pt-6 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="font-medium text-sm">{item.title}</span>
+                          <Badge variant="outline">{item.status}</Badge>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge variant="secondary">{moduleLabel}</Badge>
+                          <Badge variant="secondary">{branchLabel}</Badge>
+                        </div>
+
+                        <div className="text-xs text-muted-foreground">
+                          {item.category} • {item.chunk_count} chunks
+                          {item.indexed_at && ` • indexed ${item.indexed_at}`}
+                        </div>
+
+                        <div className="pt-2">
+                          <Button variant="outline" size="sm" asChild>
+                            <Link to="/knowledge" state={{ editDocId: item.doc_id }}>
+                              Edit in Knowledge
+                              <ExternalLink className="size-3.5" />
+                            </Link>
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+            </div>
           </TabsContent>
         </Tabs>
       </div >
