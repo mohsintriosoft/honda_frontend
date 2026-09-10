@@ -5,9 +5,8 @@ import { retrieveData } from "../LocalConnection/LocalConnection.js";
    BASE URL
 ========================================================= */
 
-let APL_LINK = "http://192.168.1.9/wowreviews_final/";
-APL_LINK = "http://localhost:8000/";
-// APL_LINK = "https://omhonda.triosoft.ai/";
+let APL_LINK = "https://omhonda.triosoft.ai/";
+// APL_LINK = "http://localhost:8000/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
 
