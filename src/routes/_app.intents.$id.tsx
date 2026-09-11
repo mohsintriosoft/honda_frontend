@@ -60,6 +60,26 @@ function intentLabel(code: string): string {
     return code.replace(/_/g, " ");
 }
 
+interface LiveIntentStats {
+    totalTurns: number;
+    positives: number;
+    negatives: number;
+    accuracy: number;
+    avgConfidence: number;
+    topConfusedWith: string;
+}
+
+function mapLiveSummary(row: any): LiveIntentStats {
+    return {
+        totalTurns: row.total_turns,
+        positives: row.positives,
+        negatives: row.negatives,
+        accuracy: row.accuracy,
+        avgConfidence: row.avg_confidence,
+        topConfusedWith: row.top_confused_with ?? "—",
+    };
+}
+
 function mapSummary(row: any): IntentSummary {
     return {
         code: row.code,
@@ -106,6 +126,15 @@ export default function IntentDetailsPage() {
     const [turnsCount, setTurnsCount] = useState(0);
     const [turnsError, setTurnsError] = useState<string | null>(null);
 
+    // 🔥 Live stats returned alongside the turn rows (see intent_turns()
+    // on the backend) — computed from the same live CorrectIntent query
+    // as the table below, not the nightly-refreshed Intent cache. This is
+    // what the summary strip / tab counts actually render, so they can
+    // never disagree with the rows on screen. `summary` (cached) is kept
+    // only as a fallback while this hasn't loaded yet, and for label/
+    // description which don't need to be live.
+    const [liveStats, setLiveStats] = useState<LiveIntentStats | null>(null);
+
     const [qInput, setQInput] = useState("");
     const [q, setQ] = useState("");
     const [view, setView] = useState<ViewFilter>("all");
@@ -120,6 +149,7 @@ export default function IntentDetailsPage() {
         setSummary(null);
         setSummaryError(null);
         setNotFound(false);
+        setLiveStats(null);
 
         server_get_data(get_intent_summary(code))
             .then((res) => {
@@ -165,6 +195,9 @@ export default function IntentDetailsPage() {
                 if (cancelled) return;
                 setTurns((res?.results ?? []).map(mapTurn));
                 setTurnsCount(res?.count ?? 0);
+                if (res?.live_summary) {
+                    setLiveStats(mapLiveSummary(res.live_summary));
+                }
             })
             .catch((err) => {
                 if (cancelled) return;
@@ -189,6 +222,10 @@ export default function IntentDetailsPage() {
 
     const pageCount = Math.max(1, Math.ceil(turnsCount / PAGE_SIZE));
     const currentPage = Math.min(page, pageCount);
+
+    // Prefer live stats (always in sync with the table below); fall back
+    // to the cached summary only until the live figure has loaded once.
+    const stats: LiveIntentStats | null = liveStats ?? summary;
 
     if (notFound) {
         return (
@@ -247,10 +284,10 @@ export default function IntentDetailsPage() {
                                     Accuracy
                                 </div>
                                 <div className="text-xl font-semibold font-display tabular-nums">
-                                    {summary ? <>{summary.accuracy}%</> : <Skeleton className="h-6 w-14" />}
+                                    {stats ? <>{stats.accuracy}%</> : <Skeleton className="h-6 w-14" />}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground mt-0.5">
-                                    {summary ? `avg confidence ${summary.avgConfidence}%` : "\u00A0"}
+                                    {stats ? `avg confidence ${stats.avgConfidence}%` : "\u00A0"}
                                 </div>
                             </CardContent>
                         </Card>
@@ -260,18 +297,18 @@ export default function IntentDetailsPage() {
                                     Correct vs missed
                                 </div>
                                 <div className="text-xl font-semibold font-display tabular-nums">
-                                    {summary ? (
+                                    {stats ? (
                                         <>
-                                            {summary.positives}
+                                            {stats.positives}
                                             <span className="text-muted-foreground font-normal"> / </span>
-                                            {summary.negatives}
+                                            {stats.negatives}
                                         </>
                                     ) : (
                                         <Skeleton className="h-6 w-16" />
                                     )}
                                 </div>
                                 <div className="text-[11px] text-muted-foreground mt-0.5">
-                                    {summary ? `out of ${summary.totalTurns} classified turns` : "\u00A0"}
+                                    {stats ? `out of ${stats.totalTurns} classified turns` : "\u00A0"}
                                 </div>
                             </CardContent>
                         </Card>
@@ -281,8 +318,8 @@ export default function IntentDetailsPage() {
                                     Most confused with
                                 </div>
                                 <div className="text-xl font-semibold font-display capitalize">
-                                    {summary ? (
-                                        summary.topConfusedWith.replace(/_/g, " ")
+                                    {stats ? (
+                                        stats.topConfusedWith.replace(/_/g, " ")
                                     ) : (
                                         <Skeleton className="h-6 w-24" />
                                     )}
@@ -298,9 +335,9 @@ export default function IntentDetailsPage() {
                 {/* Saved views */}
                 <div className="flex items-center gap-2 overflow-x-auto pb-1">
                     {[
-                        { key: "all" as const, label: `All turns${summary ? ` (${summary.totalTurns})` : ""}` },
-                        { key: "match" as const, label: `Correct${summary ? ` (${summary.positives})` : ""}` },
-                        { key: "mismatch" as const, label: `Mismatches${summary ? ` (${summary.negatives})` : ""}` },
+                        { key: "all" as const, label: `All turns${stats ? ` (${stats.totalTurns})` : ""}` },
+                        { key: "match" as const, label: `Correct${stats ? ` (${stats.positives})` : ""}` },
+                        { key: "mismatch" as const, label: `Mismatches${stats ? ` (${stats.negatives})` : ""}` },
                     ].map((v) => (
                         <button
                             key={v.key}
