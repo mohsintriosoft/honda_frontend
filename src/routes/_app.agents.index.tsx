@@ -1,108 +1,54 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 import Loader from "@/components/layout/Loader";
 
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+
+import { Bot, ArrowRight, BookOpen, Layers, Mic } from "lucide-react";
 
 import {
-  Bot,
-  ArrowRight,
-  Sparkles,
-  BookOpen,
-  ShieldCheck,
-  GitBranch,
-  GraduationCap,
-} from "lucide-react";
-
-import { WORKFLOW_LABEL } from "../mocks/agents";
-import { formatNumber } from "../lib/format";
-import { storeData, retrieveData } from "@/components/LocalConnection/LocalConnection";
-import {
-  server_post_data,
   server_get_data,
   get_segments,
   get_llm_settings,
+  get_agent_knowledge,
 } from "@/components/ServiceConnection/serviceconnection";
 import { handleError } from "@/components/CommonJquery/CommonJquery";
 
-// ======================================================
-// SEEDED RANDOM (demo fields until real metrics are wired up)
-// ======================================================
+// Agents are per MODULE, not per segment (docs §10.3): there are at most
+// 3 real agents — Service, Insurance, AMC — each shared across however
+// many segments/campaigns use that module. This page still lists every
+// SEGMENT (that's the unit people recognize/manage day to day); each
+// card is annotated with whichever module-agent currently serves it.
+const TOTAL_MODULES = 3;
 
-function mulberry32(seed) {
-  return function () {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function randInt(rng, min, max) {
-  return Math.floor(rng() * (max - min + 1)) + min;
-}
-
-function randPick(rng, arr) {
-  return arr[Math.floor(rng() * arr.length)];
-}
-
-// ======================================================
-// CONSTANTS
-// ======================================================
-
-const LANGUAGES = ["Bhopali Hindi", "Hindi", "Hinglish"];
-const VERSIONS = ["v1.0", "v1.8", "v2.1-beta", "v3.5", "v4.2", "v6.0"];
-const STATUSES = ["live", "training", "draft"];
-const WORKFLOW_KEYS = Object.keys(WORKFLOW_LABEL);
-
-const VOICES = [
-  { voice: "coral", gender: "female" },
-  { voice: "ash", gender: "male" },
-];
-
-const STATUS_STYLE = {
-  live: "bg-[color:var(--success)]/12 text-[color:var(--success)] border-[color:var(--success)]/30",
-  training: "bg-[color:var(--ai)]/12 text-[color:var(--ai)] border-[color:var(--ai)]/30",
-  draft: "bg-secondary text-muted-foreground",
-  paused: "bg-secondary text-muted-foreground",
-};
-
-function randomizedFieldsFor(segmentId) {
-  const rng = mulberry32(segmentId);
-  const daysAgo = randInt(rng, 1, 60);
-  const trained = new Date();
-  trained.setDate(trained.getDate() - daysAgo);
-
-  return {
-    status: randPick(rng, STATUSES),
-    workflow: randPick(rng, WORKFLOW_KEYS),
-    language: randPick(rng, LANGUAGES),
-    version: randPick(rng, VERSIONS),
-    lastTrained: trained.toISOString().slice(0, 10),
-    voicePick: randPick(rng, VOICES),
-    metrics: {
-      calls: randInt(rng, 150, 5000),
-      connectRate: randInt(rng, 40, 90),
-      intentAccuracy: randInt(rng, 60, 98),
-      bookingRate: randInt(rng, 10, 50),
-    },
-    knowledgeCount: randInt(rng, 0, 15),
-  };
+interface SegmentCard {
+  id: string;
+  name: string;
+  description: string | null;
+  matchServiceType: string | null;
+  daysBefore?: number;
+  daysAfter?: number;
+  module: string | null;
+  settingId: number | null;
+  persona: string | null;
+  voiceName: string | null;
+  voiceGender: string | null;
 }
 
 const AgentsPage = () => {
   const [ShowLoaderAdmin, setShowLoaderAdmin] = useState(true);
-  const [agents, setAgents] = useState([]);
-  const [errorMsg, setErrorMsg] = useState(null);
-  const navigate = useNavigate();
+  const [segments, setSegments] = useState<SegmentCard[]>([]);
+  const [knowledgeTotal, setKnowledgeTotal] = useState(0);
+  const [modulesConfigured, setModulesConfigured] = useState(0);
+  const [voicesAssigned, setVoicesAssigned] = useState(0);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // ====================================================
-  // LOAD AGENTS  (segments + llm-settings, DashboardWow style)
+  // LOAD — every segment, annotated with the module-wide
+  // LLM setting (if any) that currently serves it.
   // ====================================================
 
   const master_data_get = async () => {
@@ -110,8 +56,13 @@ const AgentsPage = () => {
     setErrorMsg(null);
 
     try {
-      const segmentsRes = await server_get_data(get_segments);
-      const segments: Segment[] = segmentsRes?.segments ?? [];
+      const [segmentsRes, settingsRes] = await Promise.all([
+        server_get_data(get_segments),
+        server_get_data(get_llm_settings),
+      ]);
+
+      const allSegments = segmentsRes?.segments ?? [];
+      const settings = settingsRes?.settings ?? [];
 
       if (!segmentsRes?.segments) {
         handleError("Failed to load segments");
@@ -120,37 +71,54 @@ const AgentsPage = () => {
         return;
       }
 
-      let settingBySegmentId = new Map();
-      try {
-        const settingsRes = await server_get_data(get_llm_settings);
-        const settings = settingsRes?.settings ?? [];
-        settingBySegmentId = new Map(settings.map((setting) => [setting.segment.id, setting]));
-      } catch {
-        // llm-settings are optional, fall back to defaults silently
-      }
+      // Map every real segment id -> the module-agent (LLMSetting) that
+      // serves it, using each setting's own `segments` list (the real
+      // relationship, resolved server-side by module — see
+      // _segments_for_module in views_admin.py). A segment with no match
+      // just means nobody has configured an agent for its module yet.
+      const settingBySegmentId = new Map<number, any>();
+      settings.forEach((setting: any) => {
+        (setting.segments ?? []).forEach((seg: any) => {
+          settingBySegmentId.set(seg.id, setting);
+        });
+      });
 
-      const mappedAgents = segments.map((segment) => {
-        const randomized = randomizedFieldsFor(segment.id);
+      const mappedSegments: SegmentCard[] = allSegments.map((segment: any) => {
         const setting = settingBySegmentId.get(segment.id);
-
         return {
           id: String(segment.id),
           name: segment.name,
           description: segment.description,
-          status: randomized.status,
-          workflow: randomized.workflow,
-          persona: setting?.persona_name ?? "Aarohi",
-          gender: setting?.voice?.gender ?? randomized.voicePick.gender,
-          voice: setting?.voice?.voice_name ?? randomized.voicePick.voice,
-          language: randomized.language,
-          version: randomized.version,
-          lastTrained: randomized.lastTrained,
-          metrics: randomized.metrics,
-          knowledge: Array.from({ length: randomized.knowledgeCount }),
+          matchServiceType: segment.match_service_type ?? null,
+          daysBefore: segment.days_before,
+          daysAfter: segment.days_after,
+          module: setting?.module ?? null,
+          settingId: setting?.id ?? null,
+          persona: setting?.persona_name ?? null,
+          voiceName: setting?.voice?.voice_name ?? null,
+          voiceGender: setting?.voice?.gender ?? null,
         };
       });
 
-      setAgents(mappedAgents);
+      setSegments(mappedSegments);
+      setModulesConfigured(new Set(settings.map((s: any) => s.module)).size);
+      setVoicesAssigned(
+        new Set(settings.map((s: any) => s.voice?.voice_name).filter(Boolean)).size,
+      );
+
+      // Knowledge totals are per module-agent, not per segment — fetched
+      // once per setting (max 3 calls) rather than once per segment.
+      const knowledgeCounts = await Promise.all(
+        settings.map(async (setting: any) => {
+          try {
+            const res = await server_get_data(get_agent_knowledge(setting.id));
+            return Array.isArray(res?.documents) ? res.documents.length : 0;
+          } catch {
+            return 0;
+          }
+        }),
+      );
+      setKnowledgeTotal(knowledgeCounts.reduce((sum, n) => sum + n, 0));
     } catch (error) {
       handleError("network");
       setErrorMsg("Failed to load AI agents");
@@ -160,24 +128,8 @@ const AgentsPage = () => {
   };
 
   useEffect(() => {
-    master_data_get("", "", retrieveData("period"));
+    master_data_get();
   }, []);
-
-  // ====================================================
-  // METRICS
-  // ====================================================
-
-  const live = agents.filter((agent) => agent.status === "live").length;
-  const totalCalls = agents.reduce((sum, agent) => sum + agent.metrics.calls, 0);
-  const accuracyAgents = agents.filter((agent) => agent.metrics.intentAccuracy > 0);
-  const avgAccuracy =
-    accuracyAgents.length > 0
-      ? Math.round(
-          accuracyAgents.reduce((sum, agent) => sum + agent.metrics.intentAccuracy, 0) /
-            accuracyAgents.length,
-        )
-      : 0;
-  const kbItems = agents.reduce((sum, agent) => sum + agent.knowledge.length, 0);
 
   return (
     <>
@@ -195,7 +147,7 @@ const AgentsPage = () => {
               <Button
                 className="mt-4"
                 variant="outline"
-                onClick={() => master_data_get("", "", retrieveData("period"))}
+                onClick={() => master_data_get()}
               >
                 Retry
               </Button>
@@ -205,32 +157,16 @@ const AgentsPage = () => {
 
         {!ShowLoaderAdmin && !errorMsg && (
           <div className="p-4 md:p-6 lg:p-8 space-y-6">
-            <div className="d-flex justify-content-between align-items-center mb-24">
-              <p className="text-secondary-light mb-0">
-                Fine-tune persona, conversation flow, knowledge and guardrails for each calling
-                workflow.
-              </p>
-              <div className="d-flex align-items-center gap-2">
-                <Link to="/agents/training" className="btn btn-outline-primary btn-sm">
-                  <GraduationCap className="size-4 me-1" />
-                  Training data
-                </Link>
-                <Button size="sm">
-                  <Sparkles className="size-4 me-1" />
-                  New agent
-                </Button>
-              </div>
-            </div>
 
             {/* ==================================================
                   SUMMARY CARDS
               ================================================== */}
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
-                { label: "Agents live", value: `${live} / ${agents.length}`, icon: Bot },
-                { label: "Calls handled", value: formatNumber(totalCalls), icon: GitBranch },
-                { label: "Avg intent accuracy", value: `${avgAccuracy}%`, icon: ShieldCheck },
-                { label: "Knowledge sources", value: String(kbItems), icon: BookOpen },
+                { label: "Segments", value: String(segments.length), icon: Layers },
+                { label: "Modules configured", value: `${modulesConfigured} / ${TOTAL_MODULES}`, icon: Bot },
+                { label: "Knowledge sources", value: String(knowledgeTotal), icon: BookOpen },
+                { label: "Voices assigned", value: String(voicesAssigned), icon: Mic },
               ].map((item) => (
                 <Card key={item.label}>
                   <CardContent className="pt-6 flex items-center gap-3">
@@ -253,35 +189,40 @@ const AgentsPage = () => {
             {/* ==================================================
                   EMPTY STATE
               ================================================== */}
-            {agents.length === 0 ? (
+            {segments.length === 0 ? (
               <Card>
                 <CardContent className="py-16 text-center">
                   <Bot className="mx-auto size-8 text-muted-foreground" />
-                  <h3 className="mt-4 text-base font-semibold">No AI agents found</h3>
+                  <h3 className="mt-4 text-base font-semibold">No segments found</h3>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Create a segment first to configure an AI agent.
+                    Segments show up here as soon as they exist — AI agents are configured
+                    per module (Service, Insurance, AMC) and apply to every segment in it.
                   </p>
                 </CardContent>
               </Card>
             ) : (
               /* ==================================================
-                   AGENT CARDS
+                   SEGMENT CARDS
                 ================================================== */
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                {agents.map((agent) => (
-                  <Link key={agent.id} to={`/agents/${agent.id}`} className="block">
+                {segments.map((segment) => (
+                  <Link key={segment.id} to={`/agents/${segment.id}`} className="block">
                     <Card className="h-full hover:shadow-md hover:border-primary/40 transition-all group">
                       <CardContent className="pt-6 space-y-4">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="font-display font-semibold">{agent.name}</span>
-                              <Badge variant="outline" className={STATUS_STYLE[agent.status]}>
-                                {agent.status}
-                              </Badge>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-display font-semibold">{segment.name}</span>
+                              {segment.module ? (
+                                <Badge variant="outline" className="capitalize">
+                                  {segment.module}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary">No agent yet</Badge>
+                              )}
                             </div>
-                            <div className="text-xs text-muted-foreground mt-1">
-                              {agent.description}
+                            <div className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                              {segment.description}
                             </div>
                           </div>
                           <div className="size-9 shrink-0 rounded-lg bg-primary/10 text-primary grid place-items-center group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
@@ -290,47 +231,32 @@ const AgentsPage = () => {
                         </div>
 
                         <div className="flex flex-wrap gap-1.5 text-[10px]">
-                          <span className="rounded-full bg-secondary px-2 py-0.5">
-                            {WORKFLOW_LABEL[agent.workflow]}
-                          </span>
-                          <span className="rounded-full bg-secondary px-2 py-0.5">
-                            {agent.persona} • {agent.gender === "male" ? "♂" : "♀"} {agent.voice}
-                          </span>
-                          <span className="rounded-full bg-secondary px-2 py-0.5">
-                            {agent.language}
-                          </span>
-                          <span className="rounded-full bg-secondary px-2 py-0.5">
-                            {agent.version}
-                          </span>
-                        </div>
-
-                        <div>
-                          <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                            <span>Intent accuracy</span>
-                            <span className="tabular-nums">{agent.metrics.intentAccuracy}%</span>
-                          </div>
-                          <Progress value={agent.metrics.intentAccuracy} className="h-1.5 mt-1" />
-                        </div>
-
-                        <div className="grid grid-cols-3 gap-2 text-center">
-                          {[
-                            { label: "Calls", value: formatNumber(agent.metrics.calls) },
-                            { label: "Connect", value: `${agent.metrics.connectRate}%` },
-                            { label: "Booked", value: `${agent.metrics.bookingRate}%` },
-                          ].map((metric) => (
-                            <div key={metric.label} className="rounded-md border p-2">
-                              <div className="text-[10px] uppercase text-muted-foreground">
-                                {metric.label}
-                              </div>
-                              <div className="text-sm font-semibold tabular-nums">
-                                {metric.value}
-                              </div>
-                            </div>
-                          ))}
+                          {segment.persona && (
+                            <span className="rounded-full bg-secondary px-2 py-0.5">
+                              {segment.persona}
+                            </span>
+                          )}
+                          {segment.voiceName && (
+                            <span className="rounded-full bg-secondary px-2 py-0.5">
+                              {segment.voiceGender === "male" ? "♂" : "♀"} {segment.voiceName}
+                            </span>
+                          )}
+                          {segment.matchServiceType && (
+                            <span className="rounded-full bg-secondary px-2 py-0.5">
+                              {segment.matchServiceType}
+                            </span>
+                          )}
+                          {(segment.daysBefore != null || segment.daysAfter != null) && (
+                            <span className="rounded-full bg-secondary px-2 py-0.5">
+                              {segment.daysBefore ?? 0}d before / {segment.daysAfter ?? 0}d after
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-between text-xs">
-                          <span className="text-muted-foreground">Trained {agent.lastTrained}</span>
+                          <span className="text-muted-foreground">
+                            {segment.module ? "Agent configured" : "Needs setup"}
+                          </span>
                           <span className="flex items-center gap-1 text-primary font-medium">
                             Configure
                             <ArrowRight className="size-3" />

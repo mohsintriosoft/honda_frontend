@@ -9,7 +9,6 @@ import Agents from "./routes/_app.agents.index";
 import AgentDetails from "./routes/_app.agents.$agentId";
 import AgentTraining from "./routes/_app.agents.training";
 import AgentRecordings from "./routes/_app.agents.recordings.index";
-import AgentRecordingsReview from "./routes/_app.agents.recordings.review";
 
 import Analytics from "./routes/_app.analytics.index";
 import Appointments from "./routes/_app.appointments.index";
@@ -24,14 +23,17 @@ import NewCampaign from "./routes/_app.campaigns.new";
 import Customers from "./routes/_app.customers.index";
 import CustomerDetails from "./routes/_app.customers.$id";
 
+import Fillers from "./routes/_app.fillers.index";
+import FillerDetail from "./routes/_app.fillers.$id";
+
 import Integrations from "./routes/_app.integrations.index";
 import Intents from "./routes/_app.intents.index";
 import IntentDetails from "./routes/_app.intents.$id";
-import Journey from "./routes/_app.journey.index";
+
 import KnowledgeGlobal from "./routes/_app.knowledge.index";
 
 import Segments from "./routes/_app.segments.index";
-import SegmentDetails from "./routes/_app.segments.$slug";
+import SegmentDetails from "./routes/_app.segments.$id";
 
 import Settings from "./routes/_app.settings.index";
 import Users from "./routes/_app.users.index";
@@ -87,8 +89,6 @@ export default function App() {
 
           <Route path="/agents/recordings" element={<AgentRecordings />} />
 
-          <Route path="/agents/recordings/review" element={<AgentRecordingsReview />} />
-
           <Route path="/agents/:agentId" element={<AgentDetails />} />
 
           {/* ================= ANALYTICS ================= */}
@@ -102,8 +102,6 @@ export default function App() {
           {/* ================= BRANCHES ================= */}
 
           <Route path="/branches" element={<Branches />} />
-
-          <Route path="/branches/new" element={<BranchDetails />} />
 
           <Route path="/branches/:id" element={<BranchDetails />} />
 
@@ -121,6 +119,12 @@ export default function App() {
 
           <Route path="/customers/:id" element={<CustomerDetails />} />
 
+          {/* ================= FILLERS ================= */}
+
+          <Route path="/fillers" element={<Fillers />} />
+
+          <Route path="/fillers/:code" element={<FillerDetail />} />
+
           {/* ================= INTEGRATIONS ================= */}
 
           <Route path="/integrations" element={<Integrations />} />
@@ -131,9 +135,6 @@ export default function App() {
 
           <Route path="/intents/:code" element={<IntentDetails />} />
 
-          {/* ================= JOURNEY ================= */}
-
-          <Route path="/journey" element={<Journey />} />
 
           {/* ================= KNOWLEDGE ================= */}
 
@@ -143,7 +144,7 @@ export default function App() {
 
           <Route path="/segments" element={<Segments />} />
 
-          <Route path="/segments/:slug" element={<SegmentDetails />} />
+          <Route path="/segments/:id" element={<SegmentDetails />} />
 
           {/* ================= SETTINGS ================= */}
 

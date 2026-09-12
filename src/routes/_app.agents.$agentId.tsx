@@ -1,9 +1,8 @@
 import { Link, useParams } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, forwardRef, useImperativeHandle, type DragEvent } from "react";
 
 import Loader from "@/components/layout/Loader";
 import { PageHeader } from "@/components/layout/AppShell";
-import { getAgent, WORKFLOW_LABEL, TEST_UTTERANCES } from "@/mocks/agents";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -16,11 +15,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
-import { Progress } from "@/components/ui/progress";
 
-import { ArrowLeft, Save, AlertCircle, ExternalLink } from "lucide-react";
+import {
+  ArrowLeft,
+  Save,
+  AlertCircle,
+  ExternalLink,
+  Plus,
+  Trash2,
+  GripVertical,
+} from "lucide-react";
 
-import { formatNumber } from "@/lib/format";
 import {
   server_get_data,
   server_patch_data,
@@ -28,9 +33,10 @@ import {
   get_tts_voices,
   get_agent_knowledge,
   get_branches,
-  get_segments,
+  patch_segment,
 } from "@/components/ServiceConnection/serviceconnection";
 import { handleError } from "@/components/CommonJquery/CommonJquery";
+import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                      */
@@ -47,21 +53,41 @@ export interface TTSVoice {
   updated_at: string | null;
 }
 
+export interface SegmentSummary {
+  id: number;
+  name: string;
+  description: string | null;
+  match_service_type?: string | null;
+  days_before?: number;
+  days_after?: number;
+  // 🔥 DYNAMIC CONVERSATION FLOW — opening_line/closing_line moved here
+  // from LLMSetting (docs: they're a per-segment concern now — Missed
+  // Service can open differently to FREE 01 even though both share the
+  // Service agent). One single line each — no more variant list.
+  opening_line?: string;
+  closing_line?: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
 export interface LLMSetting {
   id: number;
-  dealer_id: number;   // NEW
-  module: string;        // NEW
+  dealer_id: number;
+  module: string;
 
   segment: {
-    id: number;
+    id: number | null;
     name: string;
     description: string;
     created_at: string | null;
     updated_at: string | null;
   };
+  segments: SegmentSummary[];   // every segment this module currently serves
 
   persona_name: string;
-  opening_line: string;
+  // 🔥 opening_line / closing_line / greetings no longer live on the agent
+  // — see SegmentSummary above. Each sibling segment now owns its own
+  // opening/closing variants.
   system_prompt: string;
   behaviour: string | null;
 
@@ -77,74 +103,9 @@ export interface LLMSetting {
   updated_at: string | null;
 }
 
-export interface AgentExtras {
-  status: string;
-  workflow: keyof typeof WORKFLOW_LABEL;
-  language: string;
-  version: string;
-  lastTrained: string;
-  goal: string;
-
-  flow: any[];
-  knowledge: any[];
-  intents: any[];
-
-  metrics: {
-    calls: number;
-    connectRate: number;
-    intentAccuracy: number;
-    bookingRate: number;
-  };
-
-  openingLine: string;
-}
-
-type AgentData = AgentExtras & {
-  name: string;
-  description: string;
-};
-
-/* -------------------------------------------------------------------------- */
-/* Default data                                                               */
-/* -------------------------------------------------------------------------- */
-
-const DEFAULT_EXTRAS: AgentExtras = {
-  status: "draft",
-
-  workflow: Object.keys(WORKFLOW_LABEL)[0] as keyof typeof WORKFLOW_LABEL,
-
-  language: "Hindi",
-  version: "v1.0",
-  lastTrained: "—",
-
-  goal: "Not yet configured",
-
-  flow: [],
-  knowledge: [],
-  intents: [],
-
-  metrics: {
-    calls: 0,
-    connectRate: 0,
-    intentAccuracy: 0,
-    bookingRate: 0,
-  },
-
-  openingLine: "",
-};
-
 /* -------------------------------------------------------------------------- */
 /* Knowledge — read-only here, via segments (docs §9.9)                      */
 /* -------------------------------------------------------------------------- */
-/*
- * Editing knowledge NEVER happens inside an agent — this tab only displays
- * the documents reachable through the agent's segments (GET /api/agents/{id}
- * /knowledge/, same per-document shape kb_get_all/_serialize_document use in
- * views_rag.py). Each card's "Edit in Knowledge" button navigates to the
- * Knowledge module — the single place writes happen and the single place
- * can_edit_knowledge is enforced — carrying the doc_id so that page opens
- * straight into that document's edit form.
- */
 
 export interface AgentKnowledgeDocument {
   doc_id: string;
@@ -161,24 +122,27 @@ export interface AgentKnowledgeDocument {
 /* -------------------------------------------------------------------------- */
 /* Main Component                                                             */
 /* -------------------------------------------------------------------------- */
+/*
+ * The route param is a SEGMENT id (every segment is clickable from the
+ * agents list), but agents are configured per MODULE (docs §10.3 — 3
+ * agents total, shared across however many segments use that module). So
+ * loading this page means: find the module-wide LLMSetting that this
+ * segment belongs to, then show everything for that module — every
+ * sibling segment it serves, plus the persona/voice/knowledge config.
+ */
 
 export default function AgentDetail() {
-  const { agentId } = useParams<{ agentId: string }>();
+  const { agentId: segmentId } = useParams<{ agentId: string }>();
 
-  const [agent, setAgent] = useState<AgentData | null>(null);
   const [setting, setSetting] = useState<LLMSetting | null>(null);
   const [voices, setVoices] = useState<TTSVoice[]>([]);
 
   const [ShowLoaderAdmin, setShowLoaderAdmin] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  /* ---------------------------------------------------------------------- */
-  /* Load agent (settings + voices), DashboardWow / AgentsPage style         */
-  /* ---------------------------------------------------------------------- */
-
   const master_data_get = async () => {
-    if (!agentId) {
-      setErrorMsg("Agent ID is missing.");
+    if (!segmentId) {
+      setErrorMsg("Segment ID is missing.");
       setShowLoaderAdmin(false);
       return;
     }
@@ -187,12 +151,24 @@ export default function AgentDetail() {
     setErrorMsg(null);
 
     try {
-      const settingRes = await server_get_data(`${get_llm_settings}${agentId}/`);
-      const setting_data: LLMSetting | undefined = settingRes?.setting;
+      const settingsRes = await server_get_data(get_llm_settings);
+      const settings: LLMSetting[] = settingsRes?.settings ?? [];
 
-      if (!setting_data) {
+      if (!settingsRes?.settings) {
         handleError("Failed to load agent");
-        setErrorMsg("Invalid agent response.");
+        setErrorMsg("Failed to load agent settings.");
+        setShowLoaderAdmin(false);
+        return;
+      }
+
+      const matched = settings.find((s) =>
+        (s.segments ?? []).some((seg) => String(seg.id) === segmentId),
+      );
+
+      if (!matched) {
+        setErrorMsg(
+          "No AI agent has been configured for this segment's module yet.",
+        );
         setShowLoaderAdmin(false);
         return;
       }
@@ -205,21 +181,12 @@ export default function AgentDetail() {
         // voices are optional, fall back to empty list silently
       }
 
-      const mockExtras = getAgent(agentId) ?? DEFAULT_EXTRAS;
-
-      const agentData: AgentData = {
-        ...mockExtras,
-        name: setting_data.segment.name,
-        description: setting_data.segment.description,
-      };
-
-      setAgent(agentData);
-      setSetting(setting_data);
+      setSetting(matched);
       setVoices(voices_data);
     } catch (error) {
       console.error("Failed to load agent:", error);
       handleError("network");
-      setErrorMsg("Failed to load this agent. Please check the agent ID and try again.");
+      setErrorMsg("Failed to load this agent. Please try again.");
     } finally {
       setShowLoaderAdmin(false);
     }
@@ -227,21 +194,13 @@ export default function AgentDetail() {
 
   useEffect(() => {
     master_data_get();
-  }, [agentId]);
-
-  /* ---------------------------------------------------------------------- */
-  /* Loading                                                                */
-  /* ---------------------------------------------------------------------- */
+  }, [segmentId]);
 
   if (ShowLoaderAdmin) {
     return <Loader />;
   }
 
-  /* ---------------------------------------------------------------------- */
-  /* Error                                                                  */
-  /* ---------------------------------------------------------------------- */
-
-  if (errorMsg || !agent || !setting) {
+  if (errorMsg || !setting) {
     return (
       <div className="p-4 md:p-6 lg:p-8">
         <Card>
@@ -253,8 +212,7 @@ export default function AgentDetail() {
             <h2 className="text-lg font-semibold">Agent not found</h2>
 
             <p className="mt-2 max-w-md text-sm text-muted-foreground">
-              {errorMsg ??
-                "Unable to load this agent. Please check the agent ID and API connection."}
+              {errorMsg ?? "Unable to load this agent. Please check the API connection."}
             </p>
 
             <div className="mt-5 flex items-center gap-2">
@@ -277,8 +235,7 @@ export default function AgentDetail() {
 
   return (
     <AgentDetailContent
-      agentId={agentId ?? ""}
-      agent={agent}
+      segmentId={segmentId ?? ""}
       setting={setting}
       voices={voices}
       onSaved={master_data_get}
@@ -291,14 +248,12 @@ export default function AgentDetail() {
 /* -------------------------------------------------------------------------- */
 
 function AgentDetailContent({
-  agentId,
-  agent,
+  segmentId,
   setting,
   voices,
   onSaved,
 }: {
-  agentId: string;
-  agent: AgentData;
+  segmentId: string;
   setting: LLMSetting;
   voices: TTSVoice[];
   onSaved: () => void;
@@ -308,26 +263,22 @@ function AgentDetailContent({
   /* ---------------------------------------------------------------------- */
 
   const [personaName, setPersonaName] = useState(setting.persona_name);
-
   const [voiceId, setVoiceId] = useState(setting.voice.id);
-
-  const [openingLine, setOpeningLine] = useState(setting.opening_line);
-
   const [systemPrompt, setSystemPrompt] = useState(setting.system_prompt);
-
   const [tone, setTone] = useState(setting.tone);
-
   const [pace, setPace] = useState(setting.pace);
-
   const [maxTurns, setMaxTurns] = useState(setting.max_turns);
-
   const [allowInterrupt, setAllowInterrupt] = useState(setting.allow_customer_barge_in);
-
-  const [testInput, setTestInput] = useState("");
-
   const [saving, setSaving] = useState(false);
 
   const selectedVoice = voices.find((voice) => voice.id === voiceId) ?? setting.voice;
+
+  // Conversation Flow tab edits whichever segment the user is already on
+  // (route :agentId === segment id — see AgentDetail's useParams above) --
+  // no in-page segment picker needed since the Agents list is where that
+  // choice already gets made.
+  const currentSegment = setting.segments.find((s) => String(s.id) === segmentId);
+  const otherSegments = setting.segments.filter((s) => String(s.id) !== segmentId);
 
   /* ---------------------------------------------------------------------- */
   /* Knowledge tab — read only, via segments (docs §9.9)                    */
@@ -337,22 +288,18 @@ function AgentDetailContent({
   const [knowledgeLoading, setKnowledgeLoading] = useState(false);
   const [knowledgeError, setKnowledgeError] = useState<string | null>(null);
 
-  // Only needed to label each card's module/branch badges the same way the
-  // Knowledge Base page does — no writes happen from here.
+  // Only needed to label each knowledge card's branch badge the same way
+  // the Knowledge Base page does — no writes happen from here. Segment
+  // labels come straight off `setting.segments`, no separate fetch needed.
   const [branches, setBranches] = useState<{ id: number; name: string }[]>([]);
-  const [segments, setSegments] = useState<{ id: number; name: string }[]>([]);
 
   useEffect(() => {
     (async () => {
       try {
-        const [branchesRes, segmentsRes] = await Promise.all([
-          server_get_data(get_branches, { dealer_id: setting.dealer_id }),
-          server_get_data(get_segments, { dealer_id: setting.dealer_id }),
-        ]);
+        const branchesRes = await server_get_data(get_branches, { dealer_id: setting.dealer_id });
         setBranches(branchesRes?.branches ?? []);
-        setSegments(segmentsRes?.segments ?? []);
       } catch (error) {
-        console.error("Failed to load branches/segments:", error);
+        console.error("Failed to load branches:", error);
         handleError("network");
       }
     })();
@@ -362,7 +309,7 @@ function AgentDetailContent({
     setKnowledgeLoading(true);
     setKnowledgeError(null);
     try {
-      const res = await server_get_data(get_agent_knowledge(agentId));
+      const res = await server_get_data(get_agent_knowledge(setting.id));
       setAgentKnowledge(Array.isArray(res?.documents) ? res.documents : []);
     } catch (error) {
       console.error("Failed to load agent knowledge:", error);
@@ -375,24 +322,22 @@ function AgentDetailContent({
 
   useEffect(() => {
     loadAgentKnowledge();
-  }, [agentId]);
+  }, [setting.id]);
 
   /* ---------------------------------------------------------------------- */
   /* Save                                                                   */
   /* ---------------------------------------------------------------------- */
 
   async function handleSave() {
-    if (!agentId) {
-      return;
-    }
-
     setSaving(true);
 
     try {
-      await server_patch_data(`${get_llm_settings}${agentId}/`, {
+      // NOTE: PATCH targets the module-wide LLMSetting's own id
+      // (setting.id), not the segment id in the URL — llm_setting_detail
+      // looks the agent up by its own pk.
+      await server_patch_data(`${get_llm_settings}${setting.id}/`, {
         persona_name: personaName,
         voice_id: voiceId,
-        opening_line: openingLine,
         system_prompt: systemPrompt,
         tone,
         pace,
@@ -416,8 +361,8 @@ function AgentDetailContent({
   return (
     <>
       <PageHeader
-        title={agent.name}
-        description={agent.description}
+        title={setting.segment.name}
+        description={setting.segment.description}
         actions={
           <Button variant="outline" size="sm" asChild>
             <Link to="/agents">
@@ -429,73 +374,16 @@ function AgentDetailContent({
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
-        {/* ---------------------------------------------------------------- */}
-        {/* Agent Meta                                                       */}
-        {/* ---------------------------------------------------------------- */}
-
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          <Badge variant="outline">{WORKFLOW_LABEL[agent.workflow]}</Badge>
-
-          <Badge variant="outline">{agent.status}</Badge>
-
-          <Badge variant="outline">{agent.language}</Badge>
-
-          <Badge variant="outline">{agent.version}</Badge>
-
-          <span className="text-muted-foreground">Trained {agent.lastTrained}</span>
-
-          <Link to="/agents/recordings" className="text-primary font-medium hover:underline">
-            Trained from 612 call recordings →
-          </Link>
-        </div>
 
         {/* ---------------------------------------------------------------- */}
-        {/* Metrics                                                          */}
-        {/* ---------------------------------------------------------------- */}
-
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {[
-            {
-              l: "Calls",
-              v: formatNumber(agent.metrics.calls),
-            },
-            {
-              l: "Connect rate",
-              v: `${agent.metrics.connectRate}%`,
-            },
-            {
-              l: "Intent accuracy",
-              v: `${agent.metrics.intentAccuracy}%`,
-            },
-            {
-              l: "Booking rate",
-              v: `${agent.metrics.bookingRate}%`,
-            },
-          ].map((metric) => (
-            <Card key={metric.l}>
-              <CardContent className="pt-6">
-                <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {metric.l}
-                </div>
-
-                <div className="text-xl font-semibold font-display tabular-nums">{metric.v}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        {/* ---------------------------------------------------------------- */}
-        {/* Tabs                                                             */}
+        {/* Tabs — the previous persona/voice + knowledge UI, unchanged      */}
         {/* ---------------------------------------------------------------- */}
 
         <Tabs defaultValue="persona">
           <TabsList className="flex-wrap h-auto">
             <TabsTrigger value="persona">Persona & Voice</TabsTrigger>
-
             <TabsTrigger value="flow">Conversation Flow</TabsTrigger>
-
             <TabsTrigger value="knowledge">Knowledge</TabsTrigger>
-
           </TabsList>
 
           {/* ============================================================ */}
@@ -544,16 +432,6 @@ function AgentDetailContent({
 
                       <Input value={selectedVoice.gender} disabled />
                     </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label>Opening line</Label>
-
-                    <Textarea
-                      rows={3}
-                      value={openingLine}
-                      onChange={(event) => setOpeningLine(event.target.value)}
-                    />
                   </div>
 
                   <div className="space-y-1.5">
@@ -637,56 +515,38 @@ function AgentDetailContent({
           </TabsContent>
 
           {/* ============================================================ */}
-          {/* FLOW                                                           */}
+          {/* CONVERSATION FLOW                                              */}
           {/* ============================================================ */}
 
-          <TabsContent value="flow" className="mt-4 space-y-3">
-            <div className="text-sm text-muted-foreground">Goal: {agent.goal}</div>
-
-            {agent.flow.length === 0 && (
+          <TabsContent value="flow" className="mt-4">
+            {/*
+              🔥 DYNAMIC CONVERSATION FLOW — opening/closing lines are a
+              per-SEGMENT setting (a module-wide agent like Service can be
+              shared by several segments — FREE 01/02/03, PAID, Missed
+              Service — each of which opens/closes a call differently).
+              The segment to edit is whichever one the user is already on
+              (the route's :agentId is a segment id, and the Agents list
+              page is where you pick a segment in the first place) — no
+              need to make them pick it again in here too. Other sibling
+              segments this same agent serves are just linked, one click
+              back to the list and into that segment's own page.
+            */}
+            {currentSegment ? (
+              <div className="space-y-4">
+                {/* key=segment.id: each segment now owns its block list as
+                    local state (seeded once on mount, see SegmentLineEditor),
+                    so switching segments needs a fresh instance rather than
+                    reusing one still holding the previous segment's blocks. */}
+                <SegmentFlowEditor key={currentSegment.id} segment={currentSegment} />
+              </div>
+            ) : (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No conversation flow configured.
+                  This segment isn't in the list this agent currently
+                  serves — try reopening it from the Agents list.
                 </CardContent>
               </Card>
             )}
-
-            {agent.flow.map((step: any, index: number) => (
-              <Card key={step.id ?? index}>
-                <CardContent className="pt-6 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="size-6 rounded-full bg-primary/10 text-primary grid place-items-center text-xs font-semibold">
-                      {index + 1}
-                    </span>
-
-                    <span className="font-medium">{step.label}</span>
-
-                    <span className="text-xs text-muted-foreground">— {step.goal}</span>
-                  </div>
-
-                  <div className="rounded-md bg-secondary p-3 text-sm">{step.say}</div>
-
-                  <div className="flex flex-wrap gap-1.5">
-                    {(step.branches ?? []).map(
-                      (
-                        branch: {
-                          on: string;
-                          next: string;
-                        },
-                        branchIndex: number,
-                      ) => (
-                        <span
-                          key={`${branch.on}-${branchIndex}`}
-                          className="rounded-full border px-2 py-0.5 text-[11px]"
-                        >
-                          {branch.on} → {branch.next}
-                        </span>
-                      ),
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
           </TabsContent>
 
           {/* ============================================================ */}
@@ -706,7 +566,7 @@ function AgentDetailContent({
             */}
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Documents reachable through this agent's segments.
+                Documents reachable through this module's segments.
               </p>
               <Button variant="outline" size="sm" asChild>
                 <Link to="/knowledge">
@@ -735,7 +595,7 @@ function AgentDetailContent({
             {!knowledgeLoading && !knowledgeError && agentKnowledge.length === 0 && (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No knowledge documents are tagged to this agent's segments yet.
+                  No knowledge documents are tagged to this module's segments yet.
                 </CardContent>
               </Card>
             )}
@@ -746,7 +606,8 @@ function AgentDetailContent({
                 agentKnowledge.map((item) => {
                   const moduleLabel = item.is_global
                     ? "Global"
-                    : segments.find((s) => s.id === item.segment_id)?.name ?? "Unknown module";
+                    : setting.segments.find((s) => s.id === item.segment_id)?.name ??
+                    "Unknown module";
                   const branchLabel =
                     Array.isArray(item.branch_ids) && item.branch_ids.length
                       ? branches.find((b) => b.id === item.branch_ids[0])?.name ?? "Unknown branch"
@@ -785,7 +646,430 @@ function AgentDetailContent({
             </div>
           </TabsContent>
         </Tabs>
-      </div >
+      </div>
     </>
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/* Segment Flow Editor — one segment's opening line + closing line           */
+/* -------------------------------------------------------------------------- */
+
+function SegmentFlowEditor({ segment }: { segment: SegmentSummary }) {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        This is exactly what <strong>{segment.name}</strong> says to open and
+        close the call. Add wording or drop in a variable, then drag the grip
+        handle to reorder them. Opening and closing save independently.
+      </p>
+
+      <SegmentLineCard
+        segmentId={segment.id}
+        field="opening_line"
+        title="Opening line"
+        description="How the call starts for this segment."
+        initialValue={segment.opening_line ?? ""}
+        placeholder="e.g. Namaste {customer_name} ji, main {branch_name} se..."
+      />
+
+      <SegmentLineCard
+        segmentId={segment.id}
+        field="closing_line"
+        title="Closing line"
+        description="How the call wraps up for this segment."
+        initialValue={segment.closing_line ?? ""}
+        placeholder="e.g. Dhanyawad, aapka din shubh ho!"
+        emptyMessage="No closing line yet — add one."
+      />
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Segment Line Card — Opening and Closing each get their own card, their     */
+/* own "Add text" / "Add variable" controls, and their own Save button, so    */
+/* saving one never touches the other.                                       */
+/* -------------------------------------------------------------------------- */
+
+function SegmentLineCard({
+  segmentId,
+  field,
+  title,
+  description,
+  initialValue,
+  placeholder,
+  emptyMessage,
+}: {
+  segmentId: number;
+  field: "opening_line" | "closing_line";
+  title: string;
+  description: string;
+  initialValue: string;
+  placeholder: string;
+  emptyMessage?: string;
+}) {
+  const [value, setValue] = useState(initialValue);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  const editorRef = useRef<SegmentLineEditorHandle>(null);
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await server_patch_data(patch_segment(segmentId), {
+        [field]: value.trim(),
+      });
+      setJustSaved(true);
+      setTimeout(() => setJustSaved(false), 2000);
+    } catch (error) {
+      console.error(`Failed to save ${field}:`, error);
+      handleError("network");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+        <div>
+          <CardTitle className="text-base">{title}</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            {description} Vars: {"{customer_name}"} {"{branch_name}"}{" "}
+            {"{vehicle_model}"} {"{due_date}"}
+          </p>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => editorRef.current?.addText()}
+          >
+            <Plus className="size-3.5" />
+            Add text
+          </Button>
+          <VariableMenuButton onSelect={(key) => editorRef.current?.addVariable(key)} />
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-4">
+        <SegmentLineEditor
+          ref={editorRef}
+          value={value}
+          placeholder={placeholder}
+          onChange={setValue}
+          emptyMessage={emptyMessage}
+        />
+
+        <div className="flex items-center justify-end gap-3">
+          {justSaved && !saving && (
+            <span className="text-xs text-muted-foreground">Saved</span>
+          )}
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            <Save className="size-4" />
+            {saving ? "Saving..." : `Save ${title.toLowerCase()}`}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Variable Menu Button — small self-contained dropdown, reused by whichever  */
+/* line section allows variables (currently just Opening line).              */
+/* -------------------------------------------------------------------------- */
+
+function VariableMenuButton({ onSelect }: { onSelect: (key: string) => void }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="relative">
+      <Button type="button" variant="outline" size="sm" onClick={() => setOpen((o) => !o)}>
+        <Plus className="size-3.5" />
+        Add variable
+      </Button>
+
+      {open && (
+        <>
+          {/* Click-outside catcher — sits behind the panel, closes the menu. */}
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border bg-popover p-1 shadow-md">
+            {VARIABLE_DEFS.map((def) => (
+              <button
+                key={def.key}
+                type="button"
+                onClick={() => {
+                  onSelect(def.key);
+                  setOpen(false);
+                }}
+                className="flex w-full flex-col items-start rounded-sm px-2 py-1.5 text-left hover:bg-muted"
+              >
+                <span className="text-sm font-medium">{def.label}</span>
+                <span className="text-xs text-muted-foreground">{`{${def.key}}`}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Line Segments — a line is text interspersed with {variable} tokens.       */
+/* Every piece (text or variable) is independently draggable so the admin    */
+/* can reorder wording and variables relative to each other, not just move   */
+/* the whole line.                                                           */
+/* -------------------------------------------------------------------------- */
+
+type LineSegment =
+  | { id: string; type: "text"; value: string }
+  | { id: string; type: "variable"; key: string };
+
+// Variable chips render just the raw {key} token (see the variable branch
+// below) — `label` still drives the "Add variable" dropdown and aria-labels.
+const VARIABLE_DEFS: { key: string; label: string }[] = [
+  { key: "customer_name", label: "Customer name" },
+  { key: "branch_name", label: "Branch name" },
+  { key: "vehicle_model", label: "Vehicle model" },
+  { key: "due_date", label: "Due date" },
+  { key: "segment_name", label: "Segment name" },
+];
+const VARIABLE_LOOKUP = new Map(VARIABLE_DEFS.map((v) => [v.key, v]));
+
+// Raw stored/sent value stays a plain "...{customer_name}..." string — these
+// helpers only run ONCE, to seed the editor's own block list when it first
+// mounts (see SegmentLineEditor below). `fallbackToBlank` controls what an
+// empty raw value seeds as: a single blank, directly-editable text block
+// (opening line — always has an input to type into) vs. a genuinely empty
+// list (closing line — lets the caller show a "nothing yet" message instead
+// of a box with nothing in it).
+function parseLineToSegments(raw: string, fallbackToBlank: boolean, makeId: () => string): LineSegment[] {
+  const parts = (raw ?? "").split(/(\{[a-zA-Z_]+\})/g).filter((part) => part !== "");
+  const segments: LineSegment[] = parts.map((part) => {
+    const match = part.match(/^\{([a-zA-Z_]+)\}$/);
+    if (match && VARIABLE_LOOKUP.has(match[1])) {
+      return { id: makeId(), type: "variable", key: match[1] };
+    }
+    return { id: makeId(), type: "text", value: part };
+  });
+  if (segments.length > 0) return segments;
+  return fallbackToBlank ? [{ id: makeId(), type: "text", value: "" }] : [];
+}
+
+function serializeSegments(segments: LineSegment[]): string {
+  const joined = segments
+    .map((s) => (s.type === "variable" ? `{${s.key}}` : s.value))
+    .join(" ");
+  // Collapse any doubled-up spaces (e.g. if a text block already ends in
+  // its own trailing space right before a variable) down to one.
+  return joined.replace(/ {2,}/g, " ");
+}
+
+export interface SegmentLineEditorHandle {
+  addText: () => void;
+  addVariable: (key: string) => void;
+}
+
+const SegmentLineEditor = forwardRef<
+  SegmentLineEditorHandle,
+  {
+    value: string;
+    onChange: (value: string) => void;
+    placeholder?: string;
+    // When set, an empty line renders this message instead of a blank
+    // input — and removing every block gets back to that same message.
+    emptyMessage?: string;
+  }
+>(function SegmentLineEditor({ value, onChange, placeholder, emptyMessage }, ref) {
+  // Blocks are owned as our OWN state, seeded from the raw string only once
+  // on mount — not re-derived from `value` on every render. That re-derive
+  // was the bug: a block that currently serializes to "" (an empty text box
+  // the admin hasn't typed into yet, or a second/third line they're about
+  // to fill in) is indistinguishable from "no block at all" once it's been
+  // flattened into a plain string, so it silently vanished the moment
+  // "Add text" pushed it — meaning you could only ever have exactly one
+  // block, never several. Keeping the block list itself as state (each
+  // block tagged with a stable id, unrelated to its text content) lets any
+  // number of text/variable blocks — including empty ones — coexist and
+  // survive typing, reordering, and removal. `onChange` still fires the
+  // serialized string upward so the parent can save it.
+  const idRef = useRef(0);
+  const makeId = () => {
+    idRef.current += 1;
+    return `blk-${idRef.current}`;
+  };
+
+  const [segments, setSegments] = useState<LineSegment[]>(() =>
+    parseLineToSegments(value, !emptyMessage, makeId),
+  );
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [overIndex, setOverIndex] = useState<number | null>(null);
+
+  const commit = (next: LineSegment[]) => {
+    setSegments(next);
+    onChange(serializeSegments(next));
+  };
+
+  const updateText = (index: number, text: string) => {
+    commit(segments.map((s, i) => (i === index ? { ...s, type: "text", value: text } : s)));
+  };
+
+  const removeSegment = (index: number) => {
+    const next = segments.filter((_, i) => i !== index);
+    // Opening line always keeps one directly-editable box — deleting the
+    // last block there resets to a fresh blank one rather than going empty.
+    if (next.length === 0 && !emptyMessage) {
+      commit([{ id: makeId(), type: "text", value: "" }]);
+      return;
+    }
+    commit(next);
+  };
+
+  const addVariable = (key: string) => commit([...segments, { id: makeId(), type: "variable", key }]);
+  const addText = () => commit([...segments, { id: makeId(), type: "text", value: "" }]);
+
+  useImperativeHandle(ref, () => ({ addText, addVariable }));
+
+  const reorder = (from: number, to: number) => {
+    if (from === to) return;
+    const next = [...segments];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    commit(next);
+  };
+
+  const clearDrag = () => {
+    setDragIndex(null);
+    setOverIndex(null);
+  };
+
+  if (segments.length === 0) {
+    return (
+      <p className="text-sm italic text-muted-foreground">
+        {emptyMessage ?? "Nothing here yet — add one."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-input bg-background p-3">
+      <div className="space-y-2">
+        {segments.map((segment, index) => {
+          const isDragging = dragIndex === index;
+          const isOver = overIndex === index && dragIndex !== null && dragIndex !== index;
+
+          // Drag-to-reorder is split into two roles: the grip handle is the
+          // only thing that's actually `draggable` (drag source), while the
+          // row itself just listens for drag-over/drop (drop target). The
+          // whole row — including the live <Input> — used to be one single
+          // draggable element, which is what froze the page: making an
+          // element that contains an actively-focused, IME-composed text
+          // input (Hindi transliteration, in this case) itself draggable
+          // is a known trap — the browser's native drag machinery and the
+          // input's text-composition/selection handling fight over the
+          // same mouse events and the tab can hang. Keeping `draggable`
+          // scoped to the small icon avoids that entirely.
+          const dropTargetHandlers = {
+            onDragOver: (event: DragEvent) => {
+              event.preventDefault();
+              if (overIndex !== index) setOverIndex(index);
+            },
+            onDrop: (event: DragEvent) => {
+              event.preventDefault();
+              if (dragIndex !== null) reorder(dragIndex, index);
+              clearDrag();
+            },
+          };
+
+          const dragHandleHandlers = {
+            draggable: true,
+            onDragStart: (event: DragEvent) => {
+              event.stopPropagation();
+              setDragIndex(index);
+            },
+            onDragEnd: clearDrag,
+          };
+
+          if (segment.type === "variable") {
+            const def = VARIABLE_LOOKUP.get(segment.key);
+            return (
+              <div
+                key={segment.id}
+                {...dropTargetHandlers}
+                title={`{${segment.key}}`}
+                className={cn(
+                  "group flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 transition-colors",
+                  isDragging && "opacity-40",
+                  isOver && "ring-2 ring-primary/50",
+                )}
+              >
+                <div
+                  {...dragHandleHandlers}
+                  className="shrink-0 cursor-grab p-0.5 text-primary/50 active:cursor-grabbing"
+                >
+                  <GripVertical className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-sm font-medium text-primary">
+                    {`{${segment.key}}`}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="shrink-0 text-primary/50 hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => removeSegment(index)}
+                  aria-label={`Remove ${def?.label ?? segment.key} variable`}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </div>
+            );
+          }
+
+          return (
+            <div
+              key={segment.id}
+              {...dropTargetHandlers}
+              className={cn(
+                "flex items-center gap-2 rounded-md transition-colors",
+                isDragging && "opacity-40",
+                isOver && "ring-2 ring-primary/50",
+              )}
+            >
+              <div
+                {...dragHandleHandlers}
+                className="shrink-0 cursor-grab p-0.5 text-muted-foreground active:cursor-grabbing"
+              >
+                <GripVertical className="size-4" />
+              </div>
+              <Input
+                value={segment.value}
+                placeholder={segments.length === 1 ? placeholder : "..."}
+                onChange={(event) => updateText(index, event.target.value)}
+                className="flex-1"
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="shrink-0 text-muted-foreground hover:text-destructive"
+                onClick={() => removeSegment(index)}
+                aria-label="Remove text block"
+              >
+                <Trash2 className="size-4" />
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+});

@@ -6,6 +6,7 @@ import {
   Megaphone,
   PhoneCall,
   MessageSquare,
+  MessageSquareText,
   CalendarDays,
   BarChart3,
   Route,
@@ -46,11 +47,10 @@ const nav = [
   { to: "/customers", label: "Customer 360", icon: Users },
   { to: "/segments", label: "Segments", icon: Layers },
   { to: "/campaigns", label: "Campaigns", icon: Megaphone, badge: "4 live" },
-  { to: "/journey", label: "Journey", icon: Route },
   { to: "/agents", label: "AI Agents", icon: Bot },
   { to: "/agents/recordings", label: "Call Recordings", icon: AudioLines },
-  { to: "/agents/recordings/review", label: "Review Queue", icon: ClipboardCheck, badge: "16" },
   { to: "/intents", label: "Intents", icon: Target },   // NEW
+  { to: "/fillers", label: "Fillers", icon: MessageSquareText },   // NEW
   { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },   // NEW
   { to: "/voice", label: "AI Voice Calls", icon: PhoneCall },
   { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare, badge: "12" },
@@ -85,7 +85,15 @@ export function AppShell({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  const isActive = (to: string) => pathname === to || (to !== "/" && pathname.startsWith(to));
+  const isActive = (to: string) => {
+    const allPaths = [...nav, ...secondary].map((i) => i.to);
+    const match = allPaths
+      .filter((p) => pathname === p || pathname.startsWith(p + "/"))
+      .sort((a, b) => b.length - a.length)[0];
+    return to === match;
+  };
+
+  // const isActive = (to: string) => pathname === to || (to !== "/" && pathname.startsWith(to));
 
   return (
     <div className="min-h-screen flex w-full bg-background text-foreground">
@@ -175,18 +183,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           ))}
         </nav>
-
-        <div className="p-3 border-t">
-          <div className="rounded-lg ai-gradient ai-border border p-3">
-            <div className="flex items-center gap-2 text-xs font-medium">
-              <Sparkles className="size-3.5 text-[color:var(--ai)]" />
-              AI Assistant
-            </div>
-            <p className="mt-1 text-[11px] text-muted-foreground leading-snug">
-              Ask anything about your customers, campaigns, or workshop.
-            </p>
-          </div>
-        </div>
       </aside>
 
       {/* Main column */}

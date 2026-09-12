@@ -35,13 +35,6 @@ export function ModuleBadge({ r, className }: { r: Recording; className?: string
       </span>
       <TooltipProvider delayDuration={200}>
       <Tooltip>
-        <TooltipTrigger asChild>
-          <Badge className={cn("gap-1 text-[10px] font-normal", TONE[r.moduleSource], low && "ring-1 ring-destructive/30")}>
-            <Icon className="size-3" />
-            {MODULE_SOURCE_LABEL[r.moduleSource]}
-            {r.moduleSource === "ai" && <span className="tabular-nums">{r.moduleConfidence}%</span>}
-          </Badge>
-        </TooltipTrigger>
         <TooltipContent className="max-w-64">
           <p>{MODULE_SOURCE_HELP[r.moduleSource]}</p>
           <p className="mt-1 opacity-80">{r.moduleEvidence}</p>

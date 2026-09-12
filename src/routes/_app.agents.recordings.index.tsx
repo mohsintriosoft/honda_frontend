@@ -106,13 +106,65 @@ const MODULES: AgentWorkflow[] = ["sales", "service", "insurance", "amc", "winba
 // (like the old page_size did) defeats the point of paginating at all.
 const PAGE_SIZE = 25;
 
-const STATUS_TONE: Record<Recording["status"], string> = {
-  queued: "bg-secondary text-muted-foreground",
-  transcribing: "bg-[color:var(--ai)]/12 text-[color:var(--ai)]",
-  mined: "bg-[color:var(--info)]/12 text-[color:var(--info)]",
-  reviewed: "bg-[color:var(--success)]/12 text-[color:var(--success)]",
-  failed: "bg-destructive/10 text-destructive",
+// Real CallSession.status values (see models.py STATUS_CHOICES) — this is a
+// different enum from Recording["status"] above, which was built for the
+// mock ingest/training pipeline (queued/transcribing/mined/…). The table's
+// Status column now shows THIS, since it's what the backend actually sends.
+const CALL_STATUS_LABEL: Record<string, string> = {
+  initiated: "Initiated",
+  ringing: "Ringing",
+  ongoing: "Ongoing",
+  completed: "Completed",
+  failed: "Failed",
+  busy: "Busy",
+  no_answer: "No Answer",
+  cancelled: "Cancelled",
+  dropped: "Dropped",
 };
+
+const CALL_STATUS_TONE: Record<string, string> = {
+  initiated: "bg-secondary text-muted-foreground",
+  ringing: "bg-[color:var(--ai)]/12 text-[color:var(--ai)]",
+  ongoing: "bg-[color:var(--ai)]/12 text-[color:var(--ai)]",
+  completed: "bg-[color:var(--success)]/12 text-[color:var(--success)]",
+  failed: "bg-destructive/10 text-destructive",
+  busy: "bg-[color:var(--warning)]/12 text-[color:var(--warning)]",
+  no_answer: "bg-[color:var(--warning)]/12 text-[color:var(--warning)]",
+  cancelled: "bg-destructive/10 text-destructive",
+  dropped: "bg-destructive/10 text-destructive",
+};
+
+function callStatusLabel(status: string): string {
+  return CALL_STATUS_LABEL[status] ?? status.replace(/_/g, " ");
+}
+
+function callStatusTone(status: string): string {
+  return CALL_STATUS_TONE[status] ?? "bg-secondary text-muted-foreground";
+}
+
+// Buckets the real call status into the mock training-pipeline enum, purely
+// so existing filter/tone logic elsewhere that's typed against
+// Recording["status"] keeps compiling. The table itself displays
+// r.callStatus (the real value), not this.
+function mapCallStatusToRecordingStatus(status: string): Recording["status"] {
+  switch (status) {
+    case "completed":
+      return "reviewed";
+    case "ringing":
+    case "ongoing":
+    case "initiated":
+      return "transcribing";
+    default:
+      return "failed";
+  }
+}
+
+function formatCost(cost: number | null): string {
+  if (cost === null || Number.isNaN(cost)) {
+    return "—";
+  }
+  return `₹${cost.toFixed(2)}`;
+}
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -130,6 +182,9 @@ function parseModuleFromName(name: string): AgentWorkflow | null {
 }
 
 function outcomeLabel(code: string): string {
+  if (!code) {
+    return "Not classified";
+  }
   return (OUTCOME_LABEL as Record<string, string>)[code] ?? code.replace(/_/g, " ");
 }
 
@@ -144,6 +199,14 @@ function getFileName(path: string): string {
   return parts[parts.length - 1] || path;
 }
 
+// Extends the mock Recording type with the real fields the backend actually
+// sends but Recording never had a slot for (call status, cost, IST time).
+type RecordingRow = Recording & {
+  callStatus: string;
+  llmCost: number | null;
+  timeIst: string | null;
+};
+
 function joinUrl(...parts: string[]): string {
   return parts
     .map((p, i) => {
@@ -152,6 +215,17 @@ function joinUrl(...parts: string[]): string {
     })
     .filter(Boolean)
     .join("/");
+}
+
+// Fills in the fields RecordingRow adds on top of the mock Recording shape,
+// for the offline/demo fallback path (API unreachable).
+function toRecordingRow(r: Recording): RecordingRow {
+  return {
+    ...r,
+    callStatus: r.status === "reviewed" ? "completed" : r.status,
+    llmCost: null,
+    timeIst: null,
+  };
 }
 
 function getAudioSrc(r: Recording): string {
@@ -166,7 +240,7 @@ function getAudioSrc(r: Recording): string {
   return joinUrl(APL_LINK, `/api/recordings/${r.id}/audio/`);
 }
 
-function mapRecordingApiToRecording(session: any): Recording {
+function mapRecordingApiToRecording(session: any): RecordingRow {
   const customerName: string =
     session?.customer?.name || session?.customer?.phone_number || "Unknown customer";
 
@@ -200,6 +274,46 @@ function mapRecordingApiToRecording(session: any): Recording {
     )
     : [];
 
+  // Quality: backend already normalizes to a 0-100 int (quality_pct), but
+  // fall back to raw `accuracy` (handling both 0-1 fractions and already-
+  // percentage values) for older API responses that predate that field.
+  let quality = 0;
+  if (typeof session.quality_pct === "number") {
+    quality = session.quality_pct;
+  } else if (typeof session.accuracy === "number") {
+    quality = Math.round(session.accuracy <= 1 ? session.accuracy * 100 : session.accuracy);
+  }
+
+  const llmCost: number | null =
+    typeof session.total_cost === "number" ? session.total_cost : null;
+
+  const callStatus: string = session.status || "initiated";
+
+  // Prefer the IST fields the backend now sends; fall back to converting
+  // the raw UTC timestamp client-side for any endpoint that hasn't picked
+  // up the backend change yet.
+  const istDate: string =
+    session.started_at_ist_date ??
+    (session.started_at
+      ? new Date(session.started_at).toLocaleDateString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
+      : "");
+
+  const istTime: string | null =
+    session.started_at_ist_time ??
+    (session.started_at
+      ? new Date(session.started_at).toLocaleTimeString("en-IN", {
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
+      : null);
+
   return {
     id: String(session.id),
     file: getFileName(
@@ -209,13 +323,16 @@ function mapRecordingApiToRecording(session: any): Recording {
     ),
     customer: customerName,
     agentName,
-    phone: session.phone ?? "unknown",
+    phone: session?.customer?.phone_number ?? "unknown",
     language: (session.language ?? "Hindi") as Recording["language"],
-    date: (session.started_at ?? "").slice(0, 10),
+    date: istDate,
     durationSec: session.duration_seconds ?? 0,
-    outcome: (session.final_intent_code || "callback") as Recording["outcome"],
-    quality: 0,
-    status: "reviewed",
+    outcome: (session.final_intent_code || "") as Recording["outcome"],
+    quality,
+    status: mapCallStatusToRecordingStatus(callStatus),
+    callStatus,
+    llmCost,
+    timeIst: istTime,
     source: "manifest",
     module,
     moduleSource: "metadata",
@@ -237,7 +354,7 @@ export default function RecordingsPage() {
     document.title = "Call Recordings — Agent Training — Triosoft";
   }, []);
 
-  const [items, setItems] = useState<Recording[]>([]);
+  const [items, setItems] = useState<RecordingRow[]>([]);
   const [jobs, setJobs] = useState<IngestJob[]>(seedJobs); // NOT DYNAMIC — see notes above
 
   const [loading, setLoading] = useState(true);
@@ -266,7 +383,7 @@ export default function RecordingsPage() {
 
   const [classFilter, setClassFilter] = useState<string>("all");
 
-  const [open, setOpen] = useState<Recording | null>(null);
+  const [open, setOpen] = useState<RecordingRow | null>(null);
 
   // --------------------------------------------------
   // Audio playback (drawer)
@@ -412,7 +529,7 @@ export default function RecordingsPage() {
           setFetchError(
             "Couldn't reach the recordings API — showing sample data instead.",
           );
-          setItems(seedRecordings.slice(0, PAGE_SIZE));
+          setItems(seedRecordings.slice(0, PAGE_SIZE).map(toRecordingRow));
           setTotalFromApi(null);
         }
       } finally {
@@ -578,7 +695,7 @@ export default function RecordingsPage() {
       return;
     }
 
-    const created: Recording[] = files.map((f, i) => {
+    const created: RecordingRow[] = files.map((f, i) => {
       const base = seedRecordings[i % seedRecordings.length]!;
 
       const tagged = parseModuleFromName(f.name);
@@ -595,13 +712,15 @@ export default function RecordingsPage() {
 
       if (explicit) {
         return {
-          ...base,
+          ...toRecordingRow(base),
 
           id: `rec_new_${uid()}`,
 
           file: f.name,
 
           status: "queued" as const,
+
+          callStatus: "queued",
 
           source,
 
@@ -630,13 +749,15 @@ export default function RecordingsPage() {
       const ai = fallback === "ai" ? classifyTranscript(base.transcript) : null;
 
       return {
-        ...base,
+        ...toRecordingRow(base),
 
         id: `rec_new_${uid()}`,
 
         file: f.name,
 
         status: "queued" as const,
+
+        callStatus: "queued",
 
         source,
 
@@ -958,6 +1079,8 @@ export default function RecordingsPage() {
 
                     <TableHead>Date</TableHead>
 
+                    <TableHead>Time (IST)</TableHead>
+
                     <TableHead>Duration</TableHead>
 
                     <TableHead>Outcome</TableHead>
@@ -966,7 +1089,7 @@ export default function RecordingsPage() {
 
                     <TableHead>Status</TableHead>
 
-                    <TableHead>LLM Cost</TableHead>
+                    <TableHead>Total Cost</TableHead>
 
                     <TableHead />
                   </TableRow>
@@ -993,24 +1116,30 @@ export default function RecordingsPage() {
 
                       <TableCell className="text-sm tabular-nums">{r.date}</TableCell>
 
+                      <TableCell className="text-sm tabular-nums text-muted-foreground">
+                        {r.timeIst ?? "—"}
+                      </TableCell>
+
                       <TableCell className="tabular-nums">
                         {formatDuration(r.durationSec)}
                       </TableCell>
 
-                      <TableCell>{outcomeLabel(r.outcome)}</TableCell>
-
-                      {/* NOT DYNAMIC — no quality field on CallSession */}
-                      <TableCell className="tabular-nums text-muted-foreground">
-                        {r.quality || "—"}
+                      <TableCell className={r.outcome ? "" : "text-muted-foreground"}>
+                        {outcomeLabel(r.outcome)}
                       </TableCell>
 
-                      <TableCell className="text-xs text-muted-foreground tabular-nums">
-                        {/* NOT DYNAMIC — no llm_cost field on CallSession yet */}
-                        —
+                      <TableCell className="tabular-nums text-muted-foreground">
+                        {r.quality ? `${r.quality}%` : "—"}
                       </TableCell>
 
                       <TableCell>
-                        <Badge className={STATUS_TONE[r.status]}>{r.status}</Badge>
+                        <Badge className={callStatusTone(r.callStatus)}>
+                          {callStatusLabel(r.callStatus)}
+                        </Badge>
+                      </TableCell>
+
+                      <TableCell className="text-xs tabular-nums">
+                        {formatCost(r.llmCost)}
                       </TableCell>
 
 
@@ -1086,7 +1215,8 @@ export default function RecordingsPage() {
 
                 <SheetDescription>
                   {open.moduleSource === "unknown" ? "Unclassified" : WORKFLOW_LABEL[open.module]} •{" "}
-                  {open.agentName} • {open.date} • {formatDuration(open.durationSec)}
+                  {open.agentName} • {open.date}
+                  {open.timeIst ? `, ${open.timeIst} IST` : ""} • {formatDuration(open.durationSec)}
                 </SheetDescription>
               </SheetHeader>
 

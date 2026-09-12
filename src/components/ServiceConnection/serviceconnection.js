@@ -18,6 +18,12 @@ const bulk_upload_menu = APL_LINK + "bulk_upload_menu";
 const login_user_email = APL_LINK + "login_user_email";
 
 const get_segments = APL_LINK + "api/segments/";
+// 🔥 DYNAMIC CONVERSATION FLOW — opening_line/closing_line now live on
+// Segment, not LLMSetting (docs: segments can each say something different,
+// e.g. Missed Service vs FREE 01, even though they share one Agent). Agent
+// detail pages PATCH these directly instead of going through llm-settings.
+const get_segment_detail = (segmentId) => `${APL_LINK}api/segments/${segmentId}/`;
+const patch_segment = (segmentId) => `${APL_LINK}api/segments/${segmentId}/`;
 const get_llm_settings = APL_LINK + "api/llm-settings/";
 const get_tts_voices = APL_LINK + "api/tts-voices/";
 // BUGFIX: this was pointing at api/tts-voices/, which meant any caller
@@ -40,6 +46,8 @@ const get_call_tasks = APL_LINK + "api/call-tasks/";
 
 const get_dealers = APL_LINK + "api/dealers/";
 const get_branches = APL_LINK + "api/branches/";
+const get_branch_detail = (id) => `${APL_LINK}api/branches/${id}/`;
+const patch_branch = (id) => `${APL_LINK}api/branches/${id}/`;
 const get_kb_documents = APL_LINK + "api/kb/documents/";
 const kb_store_url = APL_LINK + "api/kb/store/";
 const kb_document_update_url = (docId) => `${APL_LINK}api/kb/documents/${docId}/update/`;
@@ -62,6 +70,17 @@ const get_campaign_batches = (campaignId) => `${APL_LINK}api/campaigns/${campaig
 const get_intents = APL_LINK + "api/intents/";
 const get_intent_summary = (code) => `${APL_LINK}api/intents/?code=${code}`;
 const get_intent_turns = (code) => `${APL_LINK}api/intents/${code}/turns/`;
+
+// Fillers — separate page/section from Intent accuracy above. Index card
+// grid (state_count/filler_count per intent) + per-intent state/filler
+// detail (GET, and POST to add a new filler line), plus one-row PATCH/
+// DELETE for editing or removing a single filler.
+const get_intent_fillers_summary = APL_LINK + "api/intents/fillers/";
+const get_intent_fillers_detail = (code) => `${APL_LINK}api/intents/${code}/fillers/`;
+const post_intent_filler = (code) => `${APL_LINK}api/intents/${code}/fillers/`;
+const patch_filler = (id) => `${APL_LINK}api/fillers/${id}/`;
+const delete_filler = (id) => `${APL_LINK}api/fillers/${id}/`;
+
 
 
 /* =========================================================
@@ -649,6 +668,8 @@ export {
   bulk_upload_menu,
   login_user_email,
   get_segments,
+  get_segment_detail,
+  patch_segment,
   get_llm_settings,
   get_tts_voices,
   update_llm_setting,
@@ -660,6 +681,8 @@ export {
   get_call_tasks,
   // NEW — knowledge base / branches
   get_branches,
+  get_branch_detail,
+  patch_branch,
   get_kb_documents,
   kb_store_url,
   kb_document_update_url,
@@ -679,6 +702,12 @@ export {
   get_intents,
   get_intent_summary,
   get_intent_turns,
+  // NEW — fillers (index card grid + per-intent state/filler editor)
+  get_intent_fillers_summary,
+  get_intent_fillers_detail,
+  post_intent_filler,
+  patch_filler,
+  delete_filler,
   // Basic Methods
   server_get_data,
   server_post_data,

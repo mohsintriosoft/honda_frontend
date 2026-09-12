@@ -1,8 +1,12 @@
 import { Link, useParams } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { PageHeader } from "@/components/layout/AppShell";
-import { Branch, BranchHoliday, DEFAULT_NEW_BRANCH, WEEKDAY_LABELS, getBranch } from "@/mocks/branches";
+import { Branch, BranchHoliday, DEFAULT_NEW_BRANCH, WEEKDAY_LABELS } from "@/mocks/branches";
+import {
+    server_get_data, server_patch_data,
+    get_branch_detail, patch_branch
+} from "@/components/ServiceConnection/serviceconnection";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -13,14 +17,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-import { ArrowLeft, Save, Plus, Trash2, AlertCircle, Building2 } from "lucide-react";
+import { ArrowLeft, Save, Plus, Trash2, AlertCircle, Building2, Loader2 } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
-/* This screen is UI scaffolding only.                                        */
-/*                                                                            */
-/* It mirrors the Branch / BranchHoliday models from voice_bot/models.py so   */
-/* the fields line up 1:1 once it's wired to the API — but for now every      */
-/* edit only touches local state. Nothing here calls the backend yet.         */
+/* Wired to the backend: GET/PATCH /branches/{id}/ (views_admin.py           */
+/* branch_detail). _serialize_branch now returns camelCase directly, so no  */
+/* translation layer is needed on the frontend anymore.                     */
+/*                                                                           */
+/* NOTE: there is currently no create endpoint. dealer_branches is GET-only */
+/* and branch_detail only accepts GET/PATCH on an existing pk, so the       */
+/* isNew ("/branches/new") path below can't actually create a branch yet —  */
+/* see handleSave. Add a POST handler on the backend before wiring this up. */
 /* -------------------------------------------------------------------------- */
 
 type DraftBranch = Omit<Branch, "id" | "createdAt" | "updatedAt" | "stats"> &
@@ -30,9 +37,45 @@ export default function BranchDetailPage() {
     const { id } = useParams<{ id: string }>();
     const isNew = !id;
 
-    const existing = isNew ? undefined : getBranch(id);
+    const [existing, setExisting] = useState<Branch | undefined>(undefined);
+    const [loading, setLoading] = useState(!isNew);
+    const [notFound, setNotFound] = useState(false);
 
-    if (!isNew && !existing) {
+    useEffect(() => {
+        if (isNew || !id) return;
+
+        let cancelled = false;
+        setLoading(true);
+        setNotFound(false);
+
+        server_get_data(get_branch_detail(id))
+            .then((res) => {
+                if (!cancelled) setExisting(res.branch);
+            })
+            .catch(() => {
+                if (!cancelled) setNotFound(true);
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [id, isNew]);
+
+    if (!isNew && loading) {
+        return (
+            <div className="p-4 md:p-6 lg:p-8">
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+                    <Loader2 className="size-4 animate-spin" />
+                    Loading branch…
+                </div>
+            </div>
+        );
+    }
+
+    if (!isNew && (notFound || !existing)) {
         return (
             <div className="p-4 md:p-6 lg:p-8">
                 <Card>
@@ -59,12 +102,20 @@ export default function BranchDetailPage() {
         );
     }
 
-    return <BranchDetailContent draft={existing ?? (DEFAULT_NEW_BRANCH as DraftBranch)} isNew={isNew} />;
+    return (
+        <BranchDetailContent
+            key={existing?.id ?? "new"}
+            draft={existing ?? (DEFAULT_NEW_BRANCH as DraftBranch)}
+            isNew={isNew}
+        />
+    );
 }
 
 function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: boolean }) {
     const [branch, setBranch] = useState<DraftBranch>(draft);
+    const [saving, setSaving] = useState(false);
     const [savedNotice, setSavedNotice] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     const set = <K extends keyof DraftBranch>(key: K, value: DraftBranch[K]) =>
         setBranch((b) => ({ ...b, [key]: value }));
@@ -93,12 +144,30 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
         set("holidays", (branch.holidays ?? []).filter((h) => h.id !== holidayId));
     };
 
-    const handleSave = () => {
-        // Not connected to the backend yet — this just simulates a save so the
-        // UI can be reviewed end-to-end. Swap for server_post_json / server_patch_data
-        // against /branches/ once that endpoint accepts the full payload.
-        setSavedNotice(true);
-        setTimeout(() => setSavedNotice(false), 2500);
+    const handleSave = async () => {
+        if (isNew) {
+            // No POST /branches/ endpoint exists on the backend yet (see note
+            // above) — surfacing this rather than calling something that
+            // would 404.
+            setSaveError(
+                "Creating branches isn't wired up yet — the backend only exposes GET/PATCH on existing branches.",
+            );
+            return;
+        }
+
+        setSaving(true);
+        setSaveError(null);
+
+        try {
+            const res = await server_patch_data(patch_branch(branch.id as number), branch);
+            setBranch(res.branch);
+            setSavedNotice(true);
+            setTimeout(() => setSavedNotice(false), 2500);
+        } catch {
+            setSaveError("Couldn't save this branch. Please try again.");
+        } finally {
+            setSaving(false);
+        }
     };
 
     return (
@@ -132,10 +201,6 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                     {!isNew && <Badge variant="outline">{branch.code}</Badge>}
 
                     {!isNew && <Badge variant="outline">{branch.city}</Badge>}
-
-                    <span className="text-muted-foreground">
-                        Not yet connected to the backend — changes are local only.
-                    </span>
                 </div>
 
                 {/* ---------------------------------------------------------------- */}
@@ -248,85 +313,94 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                     {/* TIMING                                                        */}
                     {/* ============================================================ */}
 
-                    <TabsContent value="timing" className="mt-4">
+                    <TabsContent value="timing" className="mt-4 space-y-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base">Weekly schedule</CardTitle>
+                                <p className="text-xs text-muted-foreground">
+                                    Same opening/closing time applies to every day that's on — flip a day
+                                    off to skip bookings for it entirely.
+                                </p>
+                            </CardHeader>
+
+                            <CardContent className="p-0">
+                                <div className="divide-y">
+                                    {WEEKDAY_LABELS.map((label, day) => {
+                                        const off = (branch.weeklyOff ?? []).includes(day);
+
+                                        return (
+                                            <div
+                                                key={label}
+                                                className="flex flex-wrap items-center gap-3 px-4 py-3 sm:gap-4"
+                                            >
+                                                <span className="w-10 shrink-0 text-sm font-medium text-primary">
+                                                    {label}
+                                                </span>
+
+                                                <Input
+                                                    type="time"
+                                                    className="w-32"
+                                                    value={branch.openingTime}
+                                                    disabled={off}
+                                                    onChange={(e) => set("openingTime", e.target.value)}
+                                                />
+
+                                                <span className="text-sm text-muted-foreground">to</span>
+
+                                                {off ? (
+                                                    <span className="w-32 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                                                        off
+                                                    </span>
+                                                ) : (
+                                                    <Input
+                                                        type="time"
+                                                        className="w-32"
+                                                        value={branch.closingTime}
+                                                        onChange={(e) => set("closingTime", e.target.value)}
+                                                    />
+                                                )}
+
+                                                <div className="flex-1" />
+
+                                                <Switch
+                                                    checked={!off}
+                                                    onCheckedChange={() => toggleWeeklyOff(day)}
+                                                    aria-label={`${label} ${off ? "closed" : "open"}`}
+                                                />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </CardContent>
+                        </Card>
+
                         <Card>
                             <CardHeader>
                                 <CardTitle className="text-base">Slot configuration</CardTitle>
                             </CardHeader>
 
-                            <CardContent className="grid gap-6 lg:grid-cols-2">
-                                <div className="space-y-4">
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="space-y-1.5">
-                                            <Label htmlFor="openingTime">Opening time</Label>
-                                            <Input
-                                                id="openingTime"
-                                                type="time"
-                                                value={branch.openingTime}
-                                                onChange={(e) => set("openingTime", e.target.value)}
-                                            />
-                                        </div>
-
-                                        <div className="space-y-1.5">
-                                            <Label htmlFor="closingTime">Closing time</Label>
-                                            <Input
-                                                id="closingTime"
-                                                type="time"
-                                                value={branch.closingTime}
-                                                onChange={(e) => set("closingTime", e.target.value)}
-                                            />
-                                        </div>
-                                    </div>
-
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="slotDuration">Slot duration (minutes)</Label>
-                                        <Input
-                                            id="slotDuration"
-                                            type="number"
-                                            min={15}
-                                            step={15}
-                                            value={branch.slotDurationMinutes}
-                                            onChange={(e) => set("slotDurationMinutes", Number(e.target.value))}
-                                        />
-                                    </div>
-
-                                    <div className="space-y-1.5">
-                                        <Label htmlFor="maxPerSlot">Max customers per slot</Label>
-                                        <Input
-                                            id="maxPerSlot"
-                                            type="number"
-                                            min={1}
-                                            value={branch.maxPerSlot}
-                                            onChange={(e) => set("maxPerSlot", Number(e.target.value))}
-                                        />
-                                    </div>
+                            <CardContent className="grid gap-4 sm:grid-cols-2">
+                                <div className="space-y-1.5">
+                                    <Label htmlFor="slotDuration">Slot duration (minutes)</Label>
+                                    <Input
+                                        id="slotDuration"
+                                        type="number"
+                                        min={15}
+                                        step={15}
+                                        value={branch.slotDurationMinutes}
+                                        onChange={(e) => set("slotDurationMinutes", Number(e.target.value))}
+                                    />
                                 </div>
 
                                 <div className="space-y-1.5">
-                                    <Label>Weekly off</Label>
-                                    <p className="text-xs text-muted-foreground mb-2">
-                                        Days this branch doesn't take bookings.
-                                    </p>
-
-                                    <div className="flex flex-wrap gap-2">
-                                        {WEEKDAY_LABELS.map((label, day) => {
-                                            const off = (branch.weeklyOff ?? []).includes(day);
-
-                                            return (
-                                                <button
-                                                    key={label}
-                                                    type="button"
-                                                    onClick={() => toggleWeeklyOff(day)}
-                                                    className={`rounded-md border px-3 py-1.5 text-xs font-medium transition-colors ${off
-                                                            ? "bg-destructive/10 border-destructive/40 text-destructive"
-                                                            : "bg-muted/40 hover:bg-muted"
-                                                        }`}
-                                                >
-                                                    {label}
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
+                                    <Label htmlFor="maxPerSlot">Max customers per slot</Label>
+                                    <Input
+                                        id="maxPerSlot"
+                                        type="number"
+                                        min={1}
+                                        value={branch.maxPerSlot}
+                                        onChange={(e) => set("maxPerSlot", Number(e.target.value))}
+                                    />
                                 </div>
                             </CardContent>
                         </Card>
@@ -389,15 +463,17 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                 </Tabs>
 
                 <div className="flex items-center gap-3">
-                    <Button size="sm" onClick={handleSave}>
-                        <Save className="size-4" />
+                    <Button size="sm" onClick={handleSave} disabled={saving}>
+                        {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
                         {isNew ? "Create branch" : "Save changes"}
                     </Button>
 
                     {savedNotice && (
-                        <span className="text-xs text-muted-foreground">
-                            Saved locally — not yet sent to the backend.
-                        </span>
+                        <span className="text-xs text-muted-foreground">Saved.</span>
+                    )}
+
+                    {saveError && (
+                        <span className="text-xs text-destructive">{saveError}</span>
                     )}
                 </div>
             </div>

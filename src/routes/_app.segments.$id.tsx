@@ -1,6 +1,7 @@
+import { useEffect, useState } from "react";
 import { Link, useParams, Navigate } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
-import { segments, customers } from "@/mocks/data";
+import { customers as mockCustomers } from "@/mocks/data";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/data/StatusBadge";
@@ -17,29 +18,85 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
+import { get_segment_detail, server_get_data } from "@/components/ServiceConnection/serviceconnection";
+
+/* -------------------------------------------------------------------------- */
+/* Types — mirrors views_admin.segment_detail()/_serialize_segment           */
+/* -------------------------------------------------------------------------- */
+
+interface ApiSegment {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  customers: number;
+  due_today: number;
+  conversion: number | null;
+  active_campaign: string | null;
+  campaign_status: "live" | "paused" | "draft" | null;
+}
+
 export default function SegmentDetailPage() {
-  const { slug } = useParams();
+  const { id } = useParams();
 
-  const segment = segments.find((s) => s.slug === slug);
+  const [segment, setSegment] = useState<ApiSegment | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  if (!segment) {
+  useEffect(() => {
+    if (!id) return;
+
+    setLoading(true);
+    setNotFound(false);
+
+    server_get_data(get_segment_detail(id))
+      .then((res) => {
+        if (!res?.success || !res?.segment) {
+          setNotFound(true);
+          return;
+        }
+
+        setSegment(res.segment);
+      })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  if (notFound) {
     return <Navigate to="/segments" replace />;
   }
 
-  const matching = customers.filter((c) => c.segments.includes(segment.slug)).slice(0, 20);
+  if (loading || !segment) {
+    return (
+      <>
+        <PageHeader title="Segment" breadcrumbs={[{ label: "Segments", to: "/segments" }]} />
+        <div className="p-4 md:p-6 lg:p-8">
+          <div className="text-sm text-muted-foreground py-8 text-center">Loading segment…</div>
+        </div>
+      </>
+    );
+  }
+
+  // 🔥 No customers-by-segment endpoint on the backend yet (api/customers/
+  // isn't wired up in urls.py) — fall back to the mock customer list,
+  // filtered down to this segment via its slug so the table still only
+  // shows customers who'd plausibly belong here.
+  const matching = mockCustomers
+    .filter((c) => c.segments.includes(segment.slug))
+    .slice(0, 20);
 
   return (
     <>
       <PageHeader
-        title={segment.label}
-        description={segment.description}
+        title={segment.name}
+        description={segment.description ?? undefined}
         breadcrumbs={[
           {
             label: "Segments",
             to: "/segments",
           },
           {
-            label: segment.label,
+            label: segment.name,
           },
         ]}
         actions={
@@ -62,13 +119,17 @@ export default function SegmentDetailPage() {
       <div className="p-4 md:p-6 lg:p-8 space-y-4">
         {/* Metrics */}
         <div className="grid gap-3 md:grid-cols-4">
-          <MetricTile label="Total customers" value={formatNumber(segment.customers)} />
+          <MetricTile label="Total customers" value={formatNumber(segment.customers ?? 0)} />
 
-          <MetricTile label="Due today" value={segment.dueToday} tone="info" />
+          <MetricTile label="Due today" value={segment.due_today ?? 0} tone="info" />
 
-          <MetricTile label="Conversion" value={`${segment.conversion}%`} tone="success" />
+          <MetricTile
+            label="Conversion"
+            value={segment.conversion != null ? `${segment.conversion}%` : "—"}
+            tone="success"
+          />
 
-          <MetricTile label="Active campaign" value={segment.activeCampaign ?? "—"} />
+          <MetricTile label="Active campaign" value={segment.active_campaign ?? "—"} />
         </div>
 
         {/* Customers */}
@@ -134,6 +195,14 @@ export default function SegmentDetailPage() {
                     </TableCell>
                   </TableRow>
                 ))}
+
+                {!matching.length && (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-center text-sm text-muted-foreground py-8">
+                      No customers found for this segment.
+                    </TableCell>
+                  </TableRow>
+                )}
               </TableBody>
             </Table>
           </CardContent>

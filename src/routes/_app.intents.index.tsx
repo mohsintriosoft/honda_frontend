@@ -82,10 +82,6 @@ export default function IntentsPage() {
                         { label: "Turns classified", value: formatNumber(totalTurns), icon: ListChecks },
                         { label: "Overall accuracy", value: `${overallAccuracy}%`, icon: Gauge },
                         { label: "Correct calls", value: formatNumber(totalPositives), icon: ThumbsUp },
-                        {
-                            label: "Mismatches on high-worth intents",
-                            icon: ShieldAlert,
-                        },
                     ].map((item) => (
                         <Card key={item.label}>
                             <CardContent className="pt-6 flex items-center gap-3">
