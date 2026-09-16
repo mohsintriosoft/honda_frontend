@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { MetricTile } from "@/components/data/KpiCard";
 
@@ -33,6 +34,7 @@ import {
   campaign_pause_clear,
   campaign_resume,
   get_recordings,
+  get_branches,
   server_get_data,
   server_post_data,
   server_patch_data,
@@ -82,17 +84,42 @@ interface CampaignLifetime {
   revenue: number;
 }
 
+interface BranchOption {
+  id: number;
+  name: string;
+}
+
 interface ApiCampaign {
   id: number;
   name: string;
+  // NOTE: segment and agent are wired once at setup and are permanent
+  // (docs §11.1/§11.6) — this page never edits them, only links out to
+  // where they ARE editable (their own detail pages).
   segment: { id: number; name: string } | null;
   agent: { id: number; persona_name: string; agent_name?: string } | null;
+  // 🔥 NEW — docs §11.5 "Targeting": NULL = whole dealer, set = restricted
+  // to one branch's customers. Was missing from this page entirely.
+  branch: BranchOption | null;
   channel: string[];
   is_active: boolean;
   status: "live" | "paused" | "draft";
-  opening_line: string;
   daily_call_limit: number;
   min_daily_calls: number;
+  // 🔥 NEW — docs §11.5 "Operational controls". Previously only
+  // daily_call_limit/call_start_time/call_end_time/call_days were
+  // surfaced here even though the model (and the doc's own field
+  // table) defines these alongside them.
+  max_attempts: number;
+  retry_gap_days: number;
+  priority: number;
+  // 🔥 NEW — docs §11.5 "Content": appended to the agent's system_prompt
+  // for this campaign only (e.g. Missed Service's "customer aaya nahi
+  // tha, politely wajah puchho"). The old `opening_line: string` field
+  // that used to sit here doesn't exist on Campaign in the current
+  // schema — that setting lives on Segment now (see
+  // serviceconnection.js's note on the redesign) and is edited from
+  // the segment's own page, which this page now links to.
+  extra_prompt: string;
   call_start_time: string | null;
   call_end_time: string | null;
   call_days: number[];
@@ -127,18 +154,28 @@ export default function CampaignDetailPage() {
   const [campaign, setCampaign] = useState<ApiCampaign | null>(null);
   const [history, setHistory] = useState<CampaignBatch[]>([]);
   const [calls, setCalls] = useState<RecentCall[]>([]);
+  const [branches, setBranches] = useState<BranchOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [actionPending, setActionPending] = useState(false);
 
-  // Editable schedule/limit fields (docs §11.5). Kept as separate local
-  // state from `campaign` so typing doesn't fight with the loaded data,
-  // and so we can tell the user their edits are unsaved.
+  // Editable operational controls (docs §11.5 — Targeting.branch,
+  // Content.extra_prompt, and every field under "Operational controls":
+  // daily_call_limit, min_daily_calls, call_start_time, call_end_time,
+  // call_days, max_attempts, retry_gap_days, priority). Kept as separate
+  // local state from `campaign` so typing doesn't fight with the loaded
+  // data, and so we can tell the user their edits are unsaved.
   const [form, setForm] = useState({
     daily_call_limit: 0,
+    min_daily_calls: 0,
     call_start_time: "10:00",
     call_end_time: "18:00",
     call_days: [] as number[],
+    max_attempts: 3,
+    retry_gap_days: 2,
+    priority: 50,
+    extra_prompt: "",
+    branch_id: "" as number | "",
   });
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -158,9 +195,15 @@ export default function CampaignDetailPage() {
         if (loaded) {
           setForm({
             daily_call_limit: loaded.daily_call_limit,
+            min_daily_calls: loaded.min_daily_calls ?? 0,
             call_start_time: loaded.call_start_time ?? "10:00",
             call_end_time: loaded.call_end_time ?? "18:00",
             call_days: loaded.call_days ?? [],
+            max_attempts: loaded.max_attempts ?? 3,
+            retry_gap_days: loaded.retry_gap_days ?? 2,
+            priority: loaded.priority ?? 50,
+            extra_prompt: loaded.extra_prompt ?? "",
+            branch_id: loaded.branch?.id ?? "",
           });
           setDirty(false);
         }
@@ -177,6 +220,14 @@ export default function CampaignDetailPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Branch options for the targeting select — independent of `id`, so
+  // this only needs to run once regardless of which campaign is open.
+  useEffect(() => {
+    server_get_data(get_branches)
+      .then((res) => setBranches(res?.branches ?? res?.results ?? res?.data ?? []))
+      .catch(() => setBranches([]));
+  }, []);
 
   const updateForm = (patch: Partial<typeof form>) => {
     setForm((prev) => ({ ...prev, ...patch }));
@@ -199,9 +250,16 @@ export default function CampaignDetailPage() {
 
     server_patch_data(patch_campaign(id), {
       daily_call_limit: form.daily_call_limit,
+      min_daily_calls: form.min_daily_calls,
       call_start_time: form.call_start_time,
       call_end_time: form.call_end_time,
       call_days: form.call_days,
+      max_attempts: form.max_attempts,
+      retry_gap_days: form.retry_gap_days,
+      priority: form.priority,
+      extra_prompt: form.extra_prompt,
+      // NULL = whole dealer (docs §11.5) — the select uses "" for that.
+      branch_id: form.branch_id === "" ? null : form.branch_id,
     })
       .then(() => {
         setDirty(false);
@@ -309,6 +367,10 @@ export default function CampaignDetailPage() {
             {c.segment?.name ?? "—"} • limit {c.daily_call_limit}/day
           </span>
 
+          <span>•</span>
+
+          <span>{c.branch ? c.branch.name : "All branches"}</span>
+
           {c.call_start_time && c.call_end_time && (
             <>
               <span>•</span>
@@ -400,24 +462,59 @@ export default function CampaignDetailPage() {
               </div>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-display">Opening line</CardTitle>
-            </CardHeader>
-
-            <CardContent className="space-y-3 text-sm">
-              <div className="rounded-md border bg-card p-3 whitespace-pre-wrap font-mono text-xs">
-                {c.opening_line || "Falls through to the agent's default opening line."}
-              </div>
-            </CardContent>
-          </Card>
         </div>
 
-        {/* Editable schedule & limits (docs §11.5) */}
+        {/* Linked configuration — a campaign is just "who" (segment) +
+            "how" (agent) + operational controls (docs §11.1). The opening
+            line, calling window (days_before/after) and knowledge base
+            live on the Segment; persona/voice/system prompt live on the
+            Agent. Neither is editable here (docs §11.1/§11.6) — this card
+            makes sure they're at least reachable from the campaign. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-display">Linked configuration</CardTitle>
+          </CardHeader>
+
+          <CardContent className="grid gap-3 md:grid-cols-2">
+            <Link
+              to={c.segment ? `/segments/${c.segment.id}` : "/segments"}
+              className="flex items-center justify-between rounded-md border p-3 text-sm hover:border-primary/40 transition-colors"
+            >
+              <span>
+                <span className="text-muted-foreground">Segment</span>
+                <br />
+                <span className="font-medium">{c.segment?.name ?? "—"}</span>
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Opening line, calling window &amp; knowledge →
+              </span>
+            </Link>
+
+            <Link
+              to={c.agent ? `/agents/${c.agent.id}` : "/agents"}
+              className="flex items-center justify-between rounded-md border p-3 text-sm hover:border-primary/40 transition-colors"
+            >
+              <span>
+                <span className="text-muted-foreground">Agent</span>
+                <br />
+                <span className="font-medium">
+                  {c.agent?.persona_name ?? c.agent?.agent_name ?? "—"}
+                </span>
+              </span>
+              <span className="text-xs text-muted-foreground">Persona, voice &amp; prompt →</span>
+            </Link>
+          </CardContent>
+        </Card>
+
+        {/* Editable operational controls — every field docs §11.5 lists
+            under Targeting.branch, Content.extra_prompt and "Operational
+            controls", not just daily_call_limit/timing/days. One Save
+            button commits the whole form together, same PATCH the toggle
+            actions below hit (docs §19.6 "PATCH — Edit, toggle, change
+            limit"). */}
         <Card>
           <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="text-base font-display">Schedule &amp; limits</CardTitle>
+            <CardTitle className="text-base font-display">Targeting, schedule &amp; limits</CardTitle>
 
             <div className="flex items-center gap-2">
               {saved && !dirty && (
@@ -434,19 +531,57 @@ export default function CampaignDetailPage() {
 
           <CardContent className="grid gap-4 md:grid-cols-2">
             <div>
-              <Label>Daily call limit</Label>
-              <Input
-                type="number"
-                min={0}
-                className="mt-1"
-                value={form.daily_call_limit}
-                onChange={(e) => updateForm({ daily_call_limit: Number(e.target.value) })}
-              />
+              <Label>Branch</Label>
+              <select
+                className="mt-1 flex h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm shadow-sm"
+                value={form.branch_id === "" ? "" : String(form.branch_id)}
+                onChange={(e) =>
+                  updateForm({
+                    branch_id: e.target.value === "" ? "" : Number(e.target.value),
+                  })
+                }
+              >
+                <option value="">All branches (dealer-wide)</option>
+                {branches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name}
+                  </option>
+                ))}
+              </select>
               <p className="text-xs text-muted-foreground mt-1">
-                Max CallTasks created per night for this campaign. Every active campaign's limit is
-                validated against the dealer's daily call budget (a warning, not a hard block).
+                Leave as "All branches" for a dealer-wide campaign, or restrict it to one branch's
+                customers.
               </p>
             </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Daily call limit</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  className="mt-1"
+                  value={form.daily_call_limit}
+                  onChange={(e) => updateForm({ daily_call_limit: Number(e.target.value) })}
+                />
+              </div>
+
+              <div>
+                <Label>Min daily calls (floor)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  className="mt-1"
+                  value={form.min_daily_calls}
+                  onChange={(e) => updateForm({ min_daily_calls: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-2 md:col-start-2">
+              Max CallTasks created per night, and a floor so a smaller segment isn't starved. Every
+              active campaign's limit is validated against the dealer's daily call budget (a
+              warning, not a hard block).
+            </p>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -470,6 +605,47 @@ export default function CampaignDetailPage() {
               </div>
             </div>
 
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Priority</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  className="mt-1"
+                  value={form.priority}
+                  onChange={(e) => updateForm({ priority: Number(e.target.value) })}
+                />
+              </div>
+
+              <div>
+                <Label>Max attempts</Label>
+                <Input
+                  type="number"
+                  min={1}
+                  className="mt-1"
+                  value={form.max_attempts}
+                  onChange={(e) => updateForm({ max_attempts: Number(e.target.value) })}
+                />
+              </div>
+
+              <div>
+                <Label>Retry gap (days)</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  className="mt-1"
+                  value={form.retry_gap_days}
+                  onChange={(e) => updateForm({ retry_gap_days: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground md:col-start-2 -mt-2">
+              Dial order when tasks compete (0–100), how many attempts before a task is exhausted,
+              and how many days between attempts.
+            </p>
+
             <div className="md:col-span-2">
               <Label>Call days</Label>
               <div className="mt-1 flex flex-wrap gap-2">
@@ -492,6 +668,21 @@ export default function CampaignDetailPage() {
               </div>
               <p className="text-xs text-muted-foreground mt-1">
                 No days selected means the campaign calls every day of the week.
+              </p>
+            </div>
+
+            <div className="md:col-span-2">
+              <Label>Prompt override</Label>
+              <Textarea
+                className="mt-1"
+                rows={3}
+                placeholder="Appended to the agent's system prompt for this campaign only, e.g. 'customer didn't show up, politely ask why.'"
+                value={form.extra_prompt}
+                onChange={(e) => updateForm({ extra_prompt: e.target.value })}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Optional. Joins onto the linked agent's system prompt — leave blank to use the
+                agent's prompt as-is.
               </p>
             </div>
           </CardContent>

@@ -13,6 +13,8 @@ import AgentRecordings from "./routes/_app.agents.recordings.index";
 import Analytics from "./routes/_app.analytics.index";
 import Appointments from "./routes/_app.appointments.index";
 
+import Callbacks from "./routes/_app.callbacks.index";
+
 import Branches from "./routes/_app.branches.index";
 import BranchDetails from "./routes/_app.branches.$id";
 
@@ -25,6 +27,9 @@ import CustomerDetails from "./routes/_app.customers.$id";
 
 import Fillers from "./routes/_app.fillers.index";
 import FillerDetail from "./routes/_app.fillers.$id";
+
+import Imports from "./routes/_app.imports.index";
+import ImportDetails from "./routes/_app.imports.$id";
 
 import Integrations from "./routes/_app.integrations.index";
 import Intents from "./routes/_app.intents.index";
@@ -99,6 +104,10 @@ export default function App() {
 
           <Route path="/appointments" element={<Appointments />} />
 
+          {/* ================= CALLBACKS ================= */}
+
+          <Route path="/callbacks" element={<Callbacks />} />
+
           {/* ================= BRANCHES ================= */}
 
           <Route path="/branches" element={<Branches />} />
@@ -124,6 +133,12 @@ export default function App() {
           <Route path="/fillers" element={<Fillers />} />
 
           <Route path="/fillers/:code" element={<FillerDetail />} />
+
+          {/* ================= DATA IMPORT ================= */}
+
+          <Route path="/imports" element={<Imports />} />
+
+          <Route path="/imports/:id" element={<ImportDetails />} />
 
           {/* ================= INTEGRATIONS ================= */}
 

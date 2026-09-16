@@ -24,6 +24,11 @@ const get_segments = APL_LINK + "api/segments/";
 // detail pages PATCH these directly instead of going through llm-settings.
 const get_segment_detail = (segmentId) => `${APL_LINK}api/segments/${segmentId}/`;
 const patch_segment = (segmentId) => `${APL_LINK}api/segments/${segmentId}/`;
+// Customers actually queued for a segment right now (reads CsvSegmentData
+// server-side) -- powers the "Customers in this segment" table on the
+// segment detail page. Paginated the same way get_customers is.
+const get_segment_customers = (segmentId, page = 1, pageSize = 20) =>
+  `${APL_LINK}api/segments/${segmentId}/customers/?page=${page}&page_size=${pageSize}`;
 const get_llm_settings = APL_LINK + "api/llm-settings/";
 const get_tts_voices = APL_LINK + "api/tts-voices/";
 // BUGFIX: this was pointing at api/tts-voices/, which meant any caller
@@ -41,13 +46,60 @@ const get_agent_knowledge = (agentId) => `${APL_LINK}api/agents/${agentId}/knowl
 const get_recordings = APL_LINK + "api/recordings/";
 const get_recording_detail = (id) => `${APL_LINK}api/recordings/${id}/`;
 const patch_recording = (id) => `${APL_LINK}api/recordings/${id}/`;
+// 🔥 NEW — Voice index page (Live tab). Reuses api/recordings/ (same
+// CallSession rows the Completed tab reads) with a comma-separated
+// status filter (backend change in views_admin.recordings), so "still on
+// the phone" calls (initiated/ringing/ongoing) come back in one poll
+// instead of one request per status. Pass to get_recordings via
+// server_get_data(get_recordings, { status: LIVE_CALL_STATUSES, page_size }).
+const LIVE_CALL_STATUSES = "initiated,ringing,ongoing";
+
+// 🔥 NEW — Quick Call (test page) endpoints, reused by the Voice index
+// page's "Add / Call customer" dialog so it saves + dials the exact same
+// way quick_call.html does.
+const get_quick_call_meta = APL_LINK + "api/quick-call/meta/";
+const post_quick_call_save = APL_LINK + "api/quick-call/save/";
+const get_quick_call_list = APL_LINK + "api/quick-call/list/";
+const get_quick_call_status = (sessionId) =>
+  `${APL_LINK}api/quick-call/status/?session_id=${sessionId}`;
+// Places the outbound call itself (Plivo). NOTE: param names below are
+// inferred from quick_call_save's shape (phone_number/dealer_id/branch_id)
+// — views_voice.plivo_call() wasn't in the files I read, so double check
+// its expected body against quick_call.html before wiring this up.
+const post_plivo_call = APL_LINK + "api/voice/plivo/call/";
 const get_customers = APL_LINK + "api/customers/";
+// Customer 360 detail page (_app_customers__id.tsx).
+const get_customer_detail = (customerId) => `${APL_LINK}api/customers/${customerId}/`;
 const get_call_tasks = APL_LINK + "api/call-tasks/";
 
 const get_dealers = APL_LINK + "api/dealers/";
 const get_branches = APL_LINK + "api/branches/";
 const get_branch_detail = (id) => `${APL_LINK}api/branches/${id}/`;
 const patch_branch = (id) => `${APL_LINK}api/branches/${id}/`;
+
+// Appointments / calendar — branch-driven (timing, slot length, and
+// capacity all come from the Branch row itself, see docs). `range` is
+// 'week' | '15day' | 'month'; `start` moves the window back/forward for
+// the prev/next control.
+const get_branch_calendar = (branchId, start, range = "week") =>
+  `${APL_LINK}api/branches/${branchId}/calendar/?start=${start}&range=${range}`;
+const post_manual_slot = (branchId) => `${APL_LINK}api/branches/${branchId}/manual-slot/`;
+const get_slot_blocks = (branchId, date) =>
+  `${APL_LINK}api/branches/${branchId}/slot-blocks/${date ? `?date=${date}` : ""}`;
+const post_slot_block = (branchId) => `${APL_LINK}api/branches/${branchId}/slot-blocks/`;
+const delete_slot_block = (id) => `${APL_LINK}api/slot-blocks/${id}/`;
+const get_appointments = APL_LINK + "api/appointments/";
+
+// Callback Requests — customer/team callback scheduling (docs §8.5). List
+// is filterable (branch_id/callback_type/status/department/start/end);
+// detail is PATCH (status/staffNotes/staffId) or DELETE (soft-delete) only
+// -- rows are created from the live call, never from this dashboard.
+const get_callbacks = APL_LINK + "api/callbacks/";
+const patch_callback = (id) => `${APL_LINK}api/callbacks/${id}/`;
+const delete_callback = (id) => `${APL_LINK}api/callbacks/${id}/`;
+const get_booking_availability = APL_LINK + "api/crm/booking-availability/";
+const post_create_booking = APL_LINK + "api/crm/booking/create/";
+const post_cancel_booking = APL_LINK + "api/crm/booking/cancel/";
 const get_kb_documents = APL_LINK + "api/kb/documents/";
 const kb_store_url = APL_LINK + "api/kb/store/";
 const kb_document_update_url = (docId) => `${APL_LINK}api/kb/documents/${docId}/update/`;
@@ -80,6 +132,21 @@ const get_intent_fillers_detail = (code) => `${APL_LINK}api/intents/${code}/fill
 const post_intent_filler = (code) => `${APL_LINK}api/intents/${code}/fillers/`;
 const patch_filler = (id) => `${APL_LINK}api/fillers/${id}/`;
 const delete_filler = (id) => `${APL_LINK}api/fillers/${id}/`;
+
+// Data Import (docs §7 / Module 3, §19.9). GET on get_imports lists upload
+// history; POST (via server_upload_file) on the same URL registers + parses
+// a new file. Everything under {id}/ operates on one CsvStats row.
+// commit/revert are POSTs with no body — the pk in the URL is enough.
+const get_imports = APL_LINK + "api/imports/";
+const post_import_upload = APL_LINK + "api/imports/";
+const get_import_detail = (id) => `${APL_LINK}api/imports/${id}/`;
+const get_import_preview = (id) => `${APL_LINK}api/imports/${id}/preview/`;
+const post_import_commit = (id) => `${APL_LINK}api/imports/${id}/commit/`;
+const post_import_revert = (id) => `${APL_LINK}api/imports/${id}/revert/`;
+const get_import_errors = (id) => `${APL_LINK}api/imports/${id}/errors/`;
+const get_import_unmatched = (id) => `${APL_LINK}api/imports/${id}/unmatched/`;
+const post_import_assign_segment = (id) => `${APL_LINK}api/imports/${id}/assign-segment/`;
+const get_import_rows = (id) => `${APL_LINK}api/imports/${id}/rows/`;
 
 
 
@@ -670,6 +737,7 @@ export {
   get_segments,
   get_segment_detail,
   patch_segment,
+  get_segment_customers,
   get_llm_settings,
   get_tts_voices,
   update_llm_setting,
@@ -677,12 +745,34 @@ export {
   get_recordings,
   get_recording_detail,
   patch_recording,
+  // NEW — Voice index page (Live tab + Add/Call customer dialog)
+  LIVE_CALL_STATUSES,
+  get_quick_call_meta,
+  post_quick_call_save,
+  get_quick_call_list,
+  get_quick_call_status,
+  post_plivo_call,
   get_customers,
+  get_customer_detail,
   get_call_tasks,
   // NEW — knowledge base / branches
   get_branches,
   get_branch_detail,
   patch_branch,
+  // NEW — appointments / calendar (branch-driven)
+  get_branch_calendar,
+  post_manual_slot,
+  get_slot_blocks,
+  post_slot_block,
+  delete_slot_block,
+  get_appointments,
+  // NEW — callback requests (customer/team)
+  get_callbacks,
+  patch_callback,
+  delete_callback,
+  get_booking_availability,
+  post_create_booking,
+  post_cancel_booking,
   get_kb_documents,
   kb_store_url,
   kb_document_update_url,
@@ -708,6 +798,17 @@ export {
   post_intent_filler,
   patch_filler,
   delete_filler,
+  // NEW — Data Import (docs §7 / Module 3, §19.9)
+  get_imports,
+  post_import_upload,
+  get_import_detail,
+  get_import_preview,
+  post_import_commit,
+  post_import_revert,
+  get_import_errors,
+  get_import_unmatched,
+  post_import_assign_segment,
+  get_import_rows,
   // Basic Methods
   server_get_data,
   server_post_data,

@@ -2,6 +2,13 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { ArrowLeft, Plus, Trash2, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from "@/components/ui/dialog";
 import { PageHeader } from "@/components/layout/AppShell";
 import {
     get_intent_fillers_detail,
@@ -30,7 +37,7 @@ interface FillerRow {
 interface StateBlock {
     state: string;
     description: string;
-    example: string;
+    examples: string[];
     fillers: FillerRow[];
 }
 
@@ -54,6 +61,8 @@ function humanizeState(state: string) {
 // with an "Add filler" button. Multiple fillers per state.
 // ─────────────────────────────────────────────────────────────────────────
 
+const MAX_EXAMPLES_PREVIEW = 2;
+
 function StateCard({
     intentCode,
     block,
@@ -65,19 +74,27 @@ function StateCard({
 }) {
     const [fillers, setFillers] = useState<FillerRow[]>(block.fillers);
     const [savingId, setSavingId] = useState<number | null>(null);
+    const [deletingId, setDeletingId] = useState<number | null>(null);
     const [addingText, setAddingText] = useState("");
     const [adding, setAdding] = useState(false);
+    const [examplesOpen, setExamplesOpen] = useState(false);
 
     useEffect(() => setFillers(block.fillers), [block.fillers]);
 
     const saveText = useCallback(
         async (filler: FillerRow, text: string) => {
             if (text === filler.text) return;
+
             setSavingId(filler.id);
+
             try {
                 const data = await server_patch_data(patch_filler(filler.id), { text });
+
                 if (data.success) {
-                    const next = fillers.map((f) => (f.id === filler.id ? data.filler : f));
+                    const next = fillers.map((f) =>
+                        f.id === filler.id ? data.filler : f
+                    );
+
                     setFillers(next);
                     onChanged(block.state, next);
                 }
@@ -93,10 +110,13 @@ function StateCard({
     const deleteFiller = useCallback(
         async (filler: FillerRow) => {
             setSavingId(filler.id);
+
             try {
                 const data = await server_delete_data(delete_filler(filler.id));
+
                 if (data.success) {
                     const next = fillers.filter((f) => f.id !== filler.id);
+
                     setFillers(next);
                     onChanged(block.state, next);
                 }
@@ -104,6 +124,7 @@ function StateCard({
                 console.error("Failed to delete filler:", err);
             } finally {
                 setSavingId(null);
+                setDeletingId(null);
             }
         },
         [fillers, block.state, onChanged],
@@ -112,14 +133,18 @@ function StateCard({
     const addFiller = useCallback(async () => {
         const text = addingText.trim();
         if (!text) return;
+
         setAdding(true);
+
         try {
             const data = await server_post_json(post_intent_filler(intentCode), {
                 state: block.state,
                 text,
             });
+
             if (data.success) {
                 const next = [...fillers, data.filler];
+
                 setFillers(next);
                 onChanged(block.state, next);
                 setAddingText("");
@@ -135,38 +160,110 @@ function StateCard({
         <div className="rounded-lg border bg-card">
             <div className="px-5 pt-4 pb-3 border-b">
                 <div className="flex items-baseline justify-between gap-3">
-                    <h4 className="font-medium text-sm">{humanizeState(block.state)}</h4>
+                    <h4 className="font-medium text-sm">
+                        {humanizeState(block.state)}
+                    </h4>
+
                     <span className="text-xs text-muted-foreground">
                         {fillers.length} filler{fillers.length === 1 ? "" : "s"}
                     </span>
                 </div>
+
                 {block.description && (
-                    <p className="mt-1 text-xs text-muted-foreground">{block.description}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        {block.description}
+                    </p>
                 )}
-                {block.example && (
+
+                {block.examples?.length > 0 && (
                     <p className="mt-2 text-xs italic text-muted-foreground/80 bg-muted/40 rounded px-2 py-1.5">
-                        "{block.example}"
+                        {block.examples.slice(0, MAX_EXAMPLES_PREVIEW).map((ex) => `"${ex}"`).join(", ")}
+                        {block.examples.length > MAX_EXAMPLES_PREVIEW && (
+                            <>
+                                {" "}
+                                <button
+                                    type="button"
+                                    onClick={() => setExamplesOpen(true)}
+                                    className="not-italic font-medium text-primary hover:underline"
+                                >
+                                    View more ({block.examples.length - MAX_EXAMPLES_PREVIEW} more)
+                                </button>
+                            </>
+                        )}
                     </p>
                 )}
             </div>
+
+            <Dialog open={examplesOpen} onOpenChange={setExamplesOpen}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>{humanizeState(block.state)} — examples</DialogTitle>
+                        <DialogDescription>
+                            {block.examples?.length ?? 0} example{(block.examples?.length ?? 0) === 1 ? "" : "s"} for this state.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-1.5 max-h-[60vh] overflow-auto">
+                        {block.examples?.map((ex, i) => (
+                            <p
+                                key={i}
+                                className="text-sm italic text-muted-foreground bg-muted/40 rounded px-2.5 py-1.5"
+                            >
+                                "{ex}"
+                            </p>
+                        ))}
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <div className="p-4 space-y-2">
                 {fillers.map((filler) => (
                     <div key={filler.id} className="flex items-center gap-2">
                         <div className="size-1.5 rounded-full bg-muted-foreground/30 shrink-0" />
+
                         <input
                             defaultValue={filler.text}
+                            disabled={deletingId === filler.id || savingId === filler.id}
                             onBlur={(e) => saveText(filler, e.target.value)}
                             onKeyDown={(e) => {
-                                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                                if (e.key === "Enter") {
+                                    (e.target as HTMLInputElement).blur();
+                                }
                             }}
-                            className="flex-1 rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                            className="flex-1 rounded-md border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
                         />
-                        {savingId === filler.id ? (
+
+                        {deletingId === filler.id ? (
+                            <div className="flex items-center gap-1 shrink-0">
+                                <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    disabled={savingId === filler.id}
+                                    onClick={() => deleteFiller(filler)}
+                                    className="h-7 px-2 text-xs"
+                                >
+                                    {savingId === filler.id ? (
+                                        <Loader2 className="size-3 animate-spin" />
+                                    ) : (
+                                        "Delete"
+                                    )}
+                                </Button>
+
+                                <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    disabled={savingId === filler.id}
+                                    onClick={() => setDeletingId(null)}
+                                    className="h-7 px-2 text-xs"
+                                >
+                                    Cancel
+                                </Button>
+                            </div>
+                        ) : savingId === filler.id ? (
                             <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" />
                         ) : (
                             <button
-                                onClick={() => deleteFiller(filler)}
+                                onClick={() => setDeletingId(filler.id)}
                                 className="text-muted-foreground hover:text-destructive shrink-0"
                                 aria-label="Delete filler"
                             >
@@ -178,6 +275,7 @@ function StateCard({
 
                 <div className="flex items-center gap-2 pt-1">
                     <Plus className="size-3.5 text-muted-foreground shrink-0" />
+
                     <input
                         value={addingText}
                         onChange={(e) => setAddingText(e.target.value)}
@@ -187,8 +285,18 @@ function StateCard({
                         placeholder="Add a new filler line…"
                         className="flex-1 rounded-md border border-dashed bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
                     />
-                    <Button size="sm" variant="secondary" disabled={adding || !addingText.trim()} onClick={addFiller}>
-                        {adding ? <Loader2 className="size-3.5 animate-spin" /> : "Add filler"}
+
+                    <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={adding || !addingText.trim()}
+                        onClick={addFiller}
+                    >
+                        {adding ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                            "Add filler"
+                        )}
                     </Button>
                 </div>
             </div>

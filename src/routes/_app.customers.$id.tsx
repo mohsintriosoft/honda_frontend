@@ -1,8 +1,7 @@
+import { useEffect, useState } from "react";
 import { Link, useParams, Navigate } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/AppShell";
-
-import { customers, calls, appointments, waThreads } from "@/mocks/data";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -27,10 +26,69 @@ import {
   Sparkles,
   PhoneCall,
   CalendarDays,
-  Megaphone,
   ChevronRight,
   Plus,
+  Loader2,
 } from "lucide-react";
+
+import { get_customer_detail, server_get_data } from "@/components/ServiceConnection/serviceconnection";
+
+/* -------------------------------------------------------------------------- */
+/* Types — mirrors views_admin._serialize_customer_detail()                  */
+/* -------------------------------------------------------------------------- */
+
+interface ApiVehicle {
+  model: string;
+  variant: string;
+  regNo: string;
+  purchasedOn: string | null;
+  kms: number | null;
+  lastServiceOn: string | null;
+}
+
+interface ApiCall {
+  id: number;
+  intent: string;
+  disposition: string;
+  summary: string;
+  startedAt: string | null;
+  durationSec: number;
+}
+
+interface ApiAppointment {
+  id: number;
+  type: string;
+  advisor: string;
+  bay: string;
+  status: string;
+  scheduledFor: string | null;
+}
+
+interface ApiServiceRecord {
+  id: number;
+  serviceType: string;
+  serviceDate: string | null;
+  amount: number;
+  kmReading: number | null;
+  remarks: string;
+}
+
+interface ApiCustomerDetail {
+  id: number;
+  name: string;
+  phone: string;
+  email: string;
+  branch: string;
+  satisfaction: number | null;
+  lifecycleStage: string;
+  totalSpend: number;
+  vehicle: ApiVehicle | null;
+  insurance: { provider: string; status: string };
+  amc: { plan: string; status: string };
+  calls: ApiCall[];
+  appointments: ApiAppointment[];
+  serviceRecords: ApiServiceRecord[];
+}
 
 /* -------------------------------------------------------------------------- */
 /* Lifecycle stages                                                           */
@@ -54,25 +112,91 @@ const STAGES = [
 export default function CustomerDetailPage() {
   const { id } = useParams<{ id: string }>();
 
-  const customer = customers.find((item) => item.id === id);
+  const [customer, setCustomer] = useState<ApiCustomerDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
 
-  /*
-   * React Router doesn't have 's notFound().
-   * Navigate back to customer list when the ID is invalid.
-   */
-  if (!customer) {
+  useEffect(() => {
+    if (!id) return;
+
+    setLoading(true);
+    setNotFound(false);
+
+    server_get_data(get_customer_detail(id))
+      .then((res) => {
+        if (!res?.success || !res?.customer) {
+          setNotFound(true);
+          return;
+        }
+        setCustomer(res.customer);
+      })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false));
+  }, [id]);
+
+  if (notFound) {
     return <Navigate to="/customers" replace />;
   }
 
-  const c = customer;
+  if (loading || !customer) {
+    return (
+      <>
+        <PageHeader title="Customer" breadcrumbs={[{ label: "Customer 360", to: "/customers" }]} />
+        <div className="p-4 md:p-6 lg:p-8 flex items-center justify-center gap-2 py-16 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" /> Loading customer…
+        </div>
+      </>
+    );
+  }
 
+  const c = customer;
   const stageIdx = Math.max(0, STAGES.indexOf(c.lifecycleStage as (typeof STAGES)[number]));
 
-  const cCalls = calls.filter((x) => x.customerId === c.id).slice(0, 4);
+  // Merge calls / appointments / service records into one chronological
+  // timeline instead of the previous hardcoded demo entries — every item
+  // here comes straight from the API response above.
+  type TimelineEvent = {
+    key: string;
+    at: string;
+    icon: React.ReactNode;
+    title: string;
+    body: string;
+    tag?: string;
+  };
 
-  const cAppts = appointments.filter((x) => x.customerId === c.id).slice(0, 4);
-
-  const cWA = waThreads.filter((x) => x.customerId === c.id).slice(0, 4);
+  const timeline: TimelineEvent[] = [
+    ...c.calls
+      .filter((call) => call.startedAt)
+      .map((call) => ({
+        key: `call-${call.id}`,
+        at: call.startedAt as string,
+        icon: <PhoneCall className="size-3.5" />,
+        title: `AI Call — ${call.intent}`,
+        body: call.summary || "No summary recorded.",
+        tag: call.disposition,
+      })),
+    ...c.appointments
+      .filter((a) => a.scheduledFor)
+      .map((a) => ({
+        key: `appt-${a.id}`,
+        at: a.scheduledFor as string,
+        icon: <CalendarDays className="size-3.5" />,
+        title: `Appointment — ${a.type}`,
+        body: `${a.advisor} • ${a.bay}`,
+        tag: a.status,
+      })),
+    ...c.serviceRecords
+      .filter((r) => r.serviceDate)
+      .map((r) => ({
+        key: `svc-${r.id}`,
+        at: r.serviceDate as string,
+        icon: <Wrench className="size-3.5" />,
+        title: `Service completed — ${r.serviceType}`,
+        body: `${formatCurrency(r.amount)}${r.remarks ? ` • ${r.remarks}` : ""}`,
+      })),
+  ]
+    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+    .slice(0, 8);
 
   return (
     <>
@@ -122,12 +246,14 @@ export default function CustomerDetailPage() {
 
                 <div className="mt-3 font-display font-semibold text-lg">{c.name}</div>
 
-                <div className="text-xs text-muted-foreground">{c.branch} • Bhopal</div>
+                <div className="text-xs text-muted-foreground">{c.branch}</div>
 
                 <div className="mt-2 flex items-center gap-1.5 text-xs">
-                  <span className="rounded-full bg-[color:var(--success)]/15 text-[color:var(--success)] px-2 py-0.5 font-medium">
-                    CSAT {c.satisfaction}
-                  </span>
+                  {c.satisfaction != null && (
+                    <span className="rounded-full bg-[color:var(--success)]/15 text-[color:var(--success)] px-2 py-0.5 font-medium">
+                      CSAT {c.satisfaction}
+                    </span>
+                  )}
 
                   <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 font-medium capitalize">
                     {c.lifecycleStage.replace(/_/g, " ")}
@@ -138,19 +264,28 @@ export default function CustomerDetailPage() {
               <div className="mt-5 space-y-2.5 text-sm">
                 <Row icon={<Phone className="size-3.5" />} label="Phone" value={c.phone} />
 
-                <Row icon={<Mail className="size-3.5" />} label="Email" value={c.email} />
+                <Row icon={<Mail className="size-3.5" />} label="Email" value={c.email || "—"} />
 
-                <Row
-                  icon={<Car className="size-3.5" />}
-                  label="Vehicle"
-                  value={`${c.vehicle.model} ${c.vehicle.variant}`}
-                />
+                {c.vehicle ? (
+                  <>
+                    <Row
+                      icon={<Car className="size-3.5" />}
+                      label="Vehicle"
+                      value={`${c.vehicle.model}${c.vehicle.variant ? ` ${c.vehicle.variant}` : ""}`}
+                    />
 
-                <Row label="Reg No" value={<span className="font-mono">{c.vehicle.regNo}</span>} />
+                    <Row label="Reg No" value={<span className="font-mono">{c.vehicle.regNo}</span>} />
 
-                <Row label="Purchased" value={formatDate(c.vehicle.purchasedOn)} />
+                    <Row
+                      label="Purchased"
+                      value={c.vehicle.purchasedOn ? formatDate(c.vehicle.purchasedOn) : "—"}
+                    />
 
-                <Row label="KM" value={c.vehicle.kms.toLocaleString()} />
+                    <Row label="KM" value={c.vehicle.kms != null ? c.vehicle.kms.toLocaleString() : "—"} />
+                  </>
+                ) : (
+                  <Row icon={<Car className="size-3.5" />} label="Vehicle" value="No vehicle on file" />
+                )}
 
                 <Row
                   label="Total spend"
@@ -171,20 +306,20 @@ export default function CustomerDetailPage() {
               <StatusRow
                 icon={<Wrench className="size-4" />}
                 label="Last service"
-                value={c.vehicle.lastServiceOn ? formatDate(c.vehicle.lastServiceOn) : "—"}
+                value={c.vehicle?.lastServiceOn ? formatDate(c.vehicle.lastServiceOn) : "—"}
               />
 
               <StatusRow
                 icon={<Shield className="size-4" />}
                 label="Insurance"
-                value={c.insurance.provider}
+                value={c.insurance.provider || "—"}
                 extra={<StatusBadge status={c.insurance.status} />}
               />
 
               <StatusRow
                 icon={<FileCheck className="size-4" />}
                 label="AMC"
-                value={c.amc.plan}
+                value={c.amc.plan || "—"}
                 extra={<StatusBadge status={c.amc.status} />}
               />
             </CardContent>
@@ -208,11 +343,10 @@ export default function CustomerDetailPage() {
                 {STAGES.map((stage, index) => (
                   <div key={stage} className="flex items-center gap-1 shrink-0">
                     <div
-                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium capitalize ${
-                        index <= stageIdx
+                      className={`rounded-full px-2.5 py-1 text-[11px] font-medium capitalize ${index <= stageIdx
                           ? "bg-primary text-primary-foreground"
                           : "bg-muted text-muted-foreground"
-                      }`}
+                        }`}
                     >
                       {stage.replace(/_/g, " ")}
                     </div>
@@ -250,43 +384,20 @@ export default function CustomerDetailPage() {
             <TabsContent value="timeline" className="mt-4">
               <Card>
                 <CardContent className="pt-6 space-y-4">
-                  <TimelineItem
-                    icon={<PhoneCall className="size-3.5" />}
-                    when="2h ago"
-                    title="AI Call — Service reminder"
-                    body="Customer interested. Booked Saturday 10:00 AM slot. AI confidence 91%."
-                    tag="booked"
-                  />
+                  {timeline.length === 0 && (
+                    <p className="text-sm text-muted-foreground">No activity recorded yet.</p>
+                  )}
 
-                  <TimelineItem
-                    icon={<MessageSquare className="size-3.5" />}
-                    when="2h ago"
-                    title="WhatsApp confirmation sent"
-                    body="Template: free_service_reminder_v3"
-                    tag="delivered"
-                  />
-
-                  <TimelineItem
-                    icon={<CalendarDays className="size-3.5" />}
-                    when="1d ago"
-                    title="Appointment auto-booked"
-                    body="Bay 3 with Anil Khanna • Free Service"
-                    tag="upcoming"
-                  />
-
-                  <TimelineItem
-                    icon={<Megaphone className="size-3.5" />}
-                    when="3d ago"
-                    title="Added to campaign"
-                    body="Free Service Nudge — Nov"
-                  />
-
-                  <TimelineItem
-                    icon={<Wrench className="size-3.5" />}
-                    when="90d ago"
-                    title="Service completed"
-                    body="2nd Free Service • ₹0 • Bay 5"
-                  />
+                  {timeline.map((event) => (
+                    <TimelineItem
+                      key={event.key}
+                      icon={event.icon}
+                      when={formatRelative(event.at)}
+                      title={event.title}
+                      body={event.body}
+                      tag={event.tag}
+                    />
+                  ))}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -296,11 +407,11 @@ export default function CustomerDetailPage() {
             {/* ============================================================= */}
 
             <TabsContent value="calls" className="mt-4 space-y-2">
-              {cCalls.length === 0 && (
+              {c.calls.length === 0 && (
                 <p className="text-sm text-muted-foreground">No AI calls yet.</p>
               )}
 
-              {cCalls.map((call) => (
+              {c.calls.map((call) => (
                 <Card key={call.id}>
                   <CardContent className="py-3 flex items-center justify-between gap-3">
                     <div className="min-w-0">
@@ -313,13 +424,13 @@ export default function CustomerDetailPage() {
                       </div>
 
                       <div className="mt-1 text-xs text-muted-foreground truncate">
-                        {call.summary}
+                        {call.summary || "No summary recorded."}
                       </div>
                     </div>
 
                     <div className="text-right shrink-0">
                       <div className="text-xs text-muted-foreground">
-                        {formatDateTime(call.startedAt)}
+                        {call.startedAt ? formatDateTime(call.startedAt) : "—"}
                       </div>
 
                       <div className="text-xs">
@@ -336,31 +447,11 @@ export default function CustomerDetailPage() {
             {/* ============================================================= */}
 
             <TabsContent value="whatsapp" className="mt-4 space-y-2">
-              {cWA.length === 0 && (
-                <p className="text-sm text-muted-foreground">No WhatsApp threads yet.</p>
-              )}
-
-              {cWA.map((thread) => (
-                <Card key={thread.id}>
-                  <CardContent className="py-3 flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm truncate">{thread.lastMessage}</div>
-
-                      <div className="text-xs text-muted-foreground capitalize">
-                        {thread.channel}
-                      </div>
-                    </div>
-
-                    <div className="text-right shrink-0">
-                      <StatusBadge status={thread.status} />
-
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {formatRelative(thread.lastAt)}
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
+              <Card>
+                <CardContent className="pt-6 text-sm text-muted-foreground">
+                  WhatsApp isn't wired up to a backend table yet — nothing to show here.
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* ============================================================= */}
@@ -368,11 +459,11 @@ export default function CustomerDetailPage() {
             {/* ============================================================= */}
 
             <TabsContent value="appointments" className="mt-4 space-y-2">
-              {cAppts.length === 0 && (
+              {c.appointments.length === 0 && (
                 <p className="text-sm text-muted-foreground">No appointments yet.</p>
               )}
 
-              {cAppts.map((appointment) => (
+              {c.appointments.map((appointment) => (
                 <Card key={appointment.id}>
                   <CardContent className="py-3 flex items-center justify-between gap-3">
                     <div>
@@ -387,7 +478,7 @@ export default function CustomerDetailPage() {
                       <StatusBadge status={appointment.status} />
 
                       <div className="text-xs text-muted-foreground mt-1">
-                        {formatDateTime(appointment.scheduledFor)}
+                        {appointment.scheduledFor ? formatDateTime(appointment.scheduledFor) : "—"}
                       </div>
                     </div>
                   </CardContent>
@@ -399,12 +490,37 @@ export default function CustomerDetailPage() {
             {/* Service                                                          */}
             {/* ============================================================= */}
 
-            <TabsContent value="service" className="mt-4">
-              <Card>
-                <CardContent className="pt-6 text-sm text-muted-foreground">
-                  Synced from DMS — full service & job-card history will appear here in Phase 2.
-                </CardContent>
-              </Card>
+            <TabsContent value="service" className="mt-4 space-y-2">
+              {c.serviceRecords.length === 0 && (
+                <Card>
+                  <CardContent className="pt-6 text-sm text-muted-foreground">
+                    No service history on file for this vehicle yet.
+                  </CardContent>
+                </Card>
+              )}
+
+              {c.serviceRecords.map((record) => (
+                <Card key={record.id}>
+                  <CardContent className="py-3 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium">{record.serviceType}</div>
+
+                      <div className="text-xs text-muted-foreground">
+                        {record.remarks || "No remarks"}
+                        {record.kmReading != null ? ` • ${record.kmReading.toLocaleString()} km` : ""}
+                      </div>
+                    </div>
+
+                    <div className="text-right">
+                      <div className="text-sm font-medium">{formatCurrency(record.amount)}</div>
+
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {record.serviceDate ? formatDate(record.serviceDate) : "—"}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </TabsContent>
 
             {/* ============================================================= */}

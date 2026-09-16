@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/AppShell";
@@ -6,11 +6,17 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
-import { MoreVertical, Megaphone, RefreshCcw } from "lucide-react";
+import { Megaphone, RefreshCcw, Pause, Play } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import { get_campaigns, server_get_data } from "@/components/ServiceConnection/serviceconnection";
+import {
+  get_campaigns,
+  campaign_pause,
+  campaign_resume,
+  server_get_data,
+  server_post_data,
+} from "@/components/ServiceConnection/serviceconnection";
 
 /* -------------------------------------------------------------------------- */
 /* Types — mirrors views_admin.campaigns()/_serialize_campaign (docs §19.6)   */
@@ -28,11 +34,19 @@ interface CampaignTotals {
   revenue: number;
 }
 
+interface CampaignAllocation {
+  total: number;
+  budget: number;
+  over: number;
+}
+
 interface ApiCampaign {
   id: number;
   name: string;
   segment: { id: number; name: string } | null;
   agent: { id: number; persona_name: string; agent_name?: string } | null;
+  // 🔥 NEW — docs §11.5 "Targeting": NULL = whole dealer, set = one branch.
+  branch: { id: number; name: string } | null;
   channel: string[];
   is_active: boolean;
   status: "live" | "paused" | "draft";
@@ -52,16 +66,27 @@ interface ApiCampaign {
 // seven campaigns that already exist.
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<ApiCampaign[]>([]);
+  // docs §11.4: every active campaign's daily_call_limit is validated
+  // against Dealer.daily_call_budget (a warning, never a hard block).
+  // views_admin.campaigns() precomputes this server-side (single source
+  // of truth for the over-budget math) and returns it as `allocation`.
+  const [allocation, setAllocation] = useState<CampaignAllocation | null>(null);
   const [tab, setTab] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Campaign ids with an in-flight pause/resume call — disables that
+  // card's toggle so a double click can't fire two conflicting requests.
+  const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
 
   const loadCampaigns = () => {
     setLoading(true);
     setError(null);
 
     server_get_data(get_campaigns)
-      .then((res) => setCampaigns(res?.campaigns ?? []))
+      .then((res) => {
+        setCampaigns(res?.campaigns ?? []);
+        setAllocation(res?.allocation ?? null);
+      })
       .catch(() => setError("Couldn't load campaigns. Pull to refresh or try again."))
       .finally(() => setLoading(false));
   };
@@ -69,6 +94,33 @@ export default function CampaignsPage() {
   useEffect(() => {
     loadCampaigns();
   }, []);
+
+  // Inline ON/OFF toggle — docs §11.9's list mockup is explicit that
+  // "Toggle and limit are editable inline" right here, not only on the
+  // detail page. Stops propagation so it doesn't also trigger the
+  // card's Link navigation.
+  const toggleCampaign = (e: MouseEvent, campaign: ApiCampaign) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (togglingIds.has(campaign.id)) return;
+
+    setTogglingIds((prev) => new Set(prev).add(campaign.id));
+
+    const request = campaign.is_active
+      ? server_post_data(campaign_pause(campaign.id))
+      : server_post_data(campaign_resume(campaign.id));
+
+    request
+      .then(() => loadCampaigns())
+      .finally(() => {
+        setTogglingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(campaign.id);
+          return next;
+        });
+      });
+  };
 
   const counts = useMemo(
     () => ({
@@ -160,12 +212,31 @@ export default function CampaignsPage() {
                         <div className="mt-1 text-xs text-muted-foreground">
                           {c.agent?.persona_name ?? c.agent?.agent_name ?? "No agent"} • Segment:{" "}
                           <span className="capitalize">{c.segment?.name ?? "—"}</span>
+                          {" • "}
+                          {c.branch ? c.branch.name : "All branches"}
+                          {" • limit "}
+                          {formatNumber(c.daily_call_limit)}/day
                           {c.created_at && <> • Created {formatDate(c.created_at)}</>}
                         </div>
                       </div>
 
-                      <Button variant="ghost" size="icon" onClick={(e) => e.preventDefault()}>
-                        <MoreVertical className="size-4" />
+                      <Button
+                        variant={c.is_active ? "outline" : "default"}
+                        size="sm"
+                        disabled={togglingIds.has(c.id)}
+                        onClick={(e) => toggleCampaign(e, c)}
+                      >
+                        {c.is_active ? (
+                          <>
+                            <Pause className="size-4" />
+                            {togglingIds.has(c.id) ? "Pausing…" : "Pause"}
+                          </>
+                        ) : (
+                          <>
+                            <Play className="size-4" />
+                            {togglingIds.has(c.id) ? "Resuming…" : "Resume"}
+                          </>
+                        )}
                       </Button>
                     </div>
 
@@ -196,8 +267,38 @@ export default function CampaignsPage() {
             );
           })}
         </div>
+
+        {!loading && !error && !!campaigns.length && (
+          <AllocationFooter allocation={allocation} />
+        )}
       </div>
     </>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Allocation footer — docs §11.4: "Total allocation: 1,000 / 1,000 ✓" /       */
+/* "⚠ 50 unused" / "✗ 50 over budget". A warning, never a hard block —        */
+/* the dialer's real ceiling is Dealer.max_concurrent_calls + the calling     */
+/* window, this is just guidance while setting daily_call_limit per campaign. */
+/* -------------------------------------------------------------------------- */
+
+function AllocationFooter({ allocation }: { allocation: CampaignAllocation | null }) {
+  if (!allocation) return null;
+
+  const { total, budget, over } = allocation;
+  const tone = over > 0 ? "text-destructive" : total < budget ? "text-amber-500" : "text-emerald-500";
+  const suffix =
+    over > 0
+      ? `✗ ${formatNumber(over)} over budget`
+      : total < budget
+        ? `⚠ ${formatNumber(budget - total)} unused`
+        : "✓";
+
+  return (
+    <div className={`text-xs tabular-nums text-right pt-1 ${tone}`}>
+      Total allocation: {formatNumber(total)} / {formatNumber(budget)} {suffix}
+    </div>
   );
 }
 

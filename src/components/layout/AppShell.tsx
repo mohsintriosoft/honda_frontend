@@ -5,6 +5,7 @@ import {
   Layers,
   Megaphone,
   PhoneCall,
+  PhoneForwarded,
   MessageSquare,
   MessageSquareText,
   CalendarDays,
@@ -26,6 +27,7 @@ import {
   Moon,
   ChevronDown,
   Command,
+  UploadCloud,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -55,7 +57,9 @@ const nav = [
   { to: "/voice", label: "AI Voice Calls", icon: PhoneCall },
   { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare, badge: "12" },
   { to: "/appointments", label: "Appointments", icon: CalendarDays },
+  { to: "/callbacks", label: "Callbacks", icon: PhoneForwarded },   // NEW
   { to: "/branches", label: "Branches", icon: Building2 },   // NEW
+  { to: "/imports", label: "Data Import", icon: UploadCloud },   // NEW
   { to: "/analytics", label: "Reports & Analytics", icon: BarChart3 },
 ] as const;
 
