@@ -174,9 +174,9 @@ export default function VoicePage() {
               Live ({live.length})
             </TabsTrigger>
 
-            <TabsTrigger value="completed">Completed ({completed.length})</TabsTrigger>
+            {/* <TabsTrigger value="completed">Completed ({completed.length})</TabsTrigger>
 
-            <TabsTrigger value="recordings">Recordings</TabsTrigger>
+            <TabsTrigger value="recordings">Recordings</TabsTrigger> */}
           </TabsList>
 
           {/* LIVE */}
@@ -195,7 +195,7 @@ export default function VoicePage() {
           </TabsContent>
 
           {/* COMPLETED */}
-          <TabsContent value="completed" className="mt-4">
+          {/* <TabsContent value="completed" className="mt-4">
             <Card>
               <CardContent className="p-0">
                 <Table>
@@ -263,12 +263,12 @@ export default function VoicePage() {
                 </Table>
               </CardContent>
             </Card>
-          </TabsContent>
+          </TabsContent> */}
 
           {/* RECORDINGS */}
-          <TabsContent value="recordings" className="mt-4">
+          {/* <TabsContent value="recordings" className="mt-4">
             <RecordingsLibraryTab />
-          </TabsContent>
+          </TabsContent> */}
         </Tabs>
       </div>
 

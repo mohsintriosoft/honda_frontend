@@ -100,19 +100,19 @@ export default function CustomersPage() {
       <PageHeader
         title="Customer 360"
         description="Every customer imported from the monthly CRM list — vehicle, service, insurance, AMC, and AI interactions in one view."
-        // actions={
-        //   <>
-        //     <Button variant="outline" size="sm">
-        //       <Download className="size-4" />
-        //       Export
-        //     </Button>
+      // actions={
+      //   <>
+      //     <Button variant="outline" size="sm">
+      //       <Download className="size-4" />
+      //       Export
+      //     </Button>
 
-        //     <Button size="sm">
-        //       <Plus className="size-4" />
-        //       Add customer
-        //     </Button>
-        //   </>
-        // }
+      //     <Button size="sm">
+      //       <Plus className="size-4" />
+      //       Add customer
+      //     </Button>
+      //   </>
+      // }
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-4">
@@ -120,25 +120,18 @@ export default function CustomersPage() {
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
           {[
             "All customers",
-            "Activa owners",
-            "Inactive 180d+",
-            "Insurance due 30d",
-            "Top spenders",
           ].map((view, index) => (
             <button
               key={view}
               className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${index === 0
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "bg-card hover:bg-accent"
+                ? "bg-primary text-primary-foreground border-primary"
+                : "bg-card hover:bg-accent"
                 }`}
             >
               {view}
             </button>
           ))}
 
-          <button className="shrink-0 rounded-full border border-dashed px-3 py-1 text-xs text-muted-foreground hover:bg-accent">
-            + Save view
-          </button>
         </div>
 
         <Card>
@@ -209,7 +202,6 @@ export default function CustomersPage() {
                       <TableHead>Lifecycle</TableHead>
                       <TableHead>Insurance</TableHead>
                       <TableHead>AMC</TableHead>
-                      <TableHead className="text-right">Spend</TableHead>
                       <TableHead>Last interaction</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -262,10 +254,6 @@ export default function CustomersPage() {
 
                         <TableCell>
                           <StatusBadge status={c.amc.status} />
-                        </TableCell>
-
-                        <TableCell className="text-right tabular-nums text-sm">
-                          {formatCurrency(c.totalSpend)}
                         </TableCell>
 
                         <TableCell className="text-xs text-muted-foreground">

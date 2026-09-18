@@ -1089,7 +1089,7 @@ export default function RecordingsPage() {
 
                     <TableHead>Status</TableHead>
 
-                    <TableHead>Total Cost</TableHead>
+                    {/* <TableHead>Total Cost</TableHead> */}
 
                     <TableHead />
                   </TableRow>
@@ -1138,9 +1138,9 @@ export default function RecordingsPage() {
                         </Badge>
                       </TableCell>
 
-                      <TableCell className="text-xs tabular-nums">
+                      {/* <TableCell className="text-xs tabular-nums">
                         {formatCost(r.llmCost)}
-                      </TableCell>
+                      </TableCell> */}
 
 
                       <TableCell>

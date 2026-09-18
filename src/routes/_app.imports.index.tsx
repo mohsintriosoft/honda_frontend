@@ -100,6 +100,16 @@ interface CsvStatsRow {
     failed_count: number;
     column_map: Record<string, string>;
     reconciles: boolean;
+    // Present once a parse/commit has hit a problem worth recording; the
+    // BLOCK-ON-UNMATCHED refusal (see views_import.py's _parse()) lands
+    // here as stage: "parse" with unmatched_rows naming every offending
+    // Excel row, so the admin knows exactly what to fix before
+    // re-uploading instead of just seeing a generic "Failed" badge.
+    error_log?: {
+        stage: string;
+        error: string;
+        unmatched_rows?: { row_number: number; excel_row: number; reason: string }[];
+    }[];
     created_at: string;
 }
 
@@ -158,6 +168,15 @@ function StatusBadge({ status }: { status: ImportStatus }) {
             {label}
         </Badge>
     );
+}
+
+// The admin should never have to guess why a file was refused -- pull the
+// most recent error_log entry (parse or commit) so its message, and any
+// named Excel rows, can render right next to the file instead of only the
+// generic "Failed" badge.
+function latestImportError(row: CsvStatsRow) {
+    const log = row.error_log ?? [];
+    return log.length > 0 ? log[log.length - 1] : null;
 }
 
 function ReconcileBadge({ row }: { row: CsvStatsRow }) {
@@ -543,53 +562,74 @@ export default function Imports() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {rows.map((row) => (
-                                        <TableRow
-                                            key={row.id}
-                                            className="cursor-pointer"
-                                            onClick={() => navigate(`/imports/${row.id}`)}
-                                        >
-                                            <TableCell className="font-medium max-w-[220px] truncate">
-                                                {row.file_name}
-                                            </TableCell>
-                                            <TableCell>{row.branch?.name}</TableCell>
-                                            <TableCell className="text-muted-foreground">
-                                                {LIST_TYPE_LABEL[row.list_type] ?? row.list_type}
-                                            </TableCell>
-                                            <TableCell className="text-right tabular-nums">
-                                                {row.total_rows.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="text-right tabular-nums">
-                                                {row.segment_data_created.toLocaleString()}
-                                            </TableCell>
-                                            <TableCell className="text-right tabular-nums">
-                                                {row.unmatched_count > 0 ? (
-                                                    <span className="text-amber-600 dark:text-amber-400">
-                                                        {row.unmatched_count.toLocaleString()}
-                                                    </span>
-                                                ) : (
-                                                    "0"
-                                                )}
-                                            </TableCell>
-                                            <TableCell>
-                                                <StatusBadge status={row.status} />
-                                            </TableCell>
-                                            <TableCell>
-                                                <ReconcileBadge row={row} />
-                                            </TableCell>
-                                            <TableCell className="text-muted-foreground whitespace-nowrap">
-                                                {new Date(row.created_at).toLocaleString(undefined, {
-                                                    day: "2-digit",
-                                                    month: "short",
-                                                    hour: "2-digit",
-                                                    minute: "2-digit",
-                                                })}
-                                            </TableCell>
-                                            <TableCell>
-                                                <ChevronRight className="size-4 text-muted-foreground" />
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {rows.map((row) => {
+                                        const lastError = row.status === "failed" ? latestImportError(row) : null;
+                                        return (
+                                            <TableRow
+                                                key={row.id}
+                                                className="cursor-pointer"
+                                                onClick={() => navigate(`/imports/${row.id}`)}
+                                            >
+                                                <TableCell className="font-medium max-w-[220px]">
+                                                    <div className="truncate">{row.file_name}</div>
+                                                    {lastError && (
+                                                        <div
+                                                            className="mt-1 flex items-start gap-1 text-xs font-normal text-destructive"
+                                                            title={lastError.error}
+                                                        >
+                                                            <AlertTriangle className="mt-0.5 size-3 shrink-0" />
+                                                            <span className="line-clamp-2">
+                                                                {lastError.error}
+                                                                {lastError.unmatched_rows && lastError.unmatched_rows.length > 0 && (
+                                                                    <>
+                                                                        {" "}
+                                                                        Upload again after fixing the unmatched
+                                                                        row{lastError.unmatched_rows.length !== 1 ? "s" : ""}.
+                                                                    </>
+                                                                )}
+                                                            </span>
+                                                        </div>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>{row.branch?.name}</TableCell>
+                                                <TableCell className="text-muted-foreground">
+                                                    {LIST_TYPE_LABEL[row.list_type] ?? row.list_type}
+                                                </TableCell>
+                                                <TableCell className="text-right tabular-nums">
+                                                    {row.total_rows.toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="text-right tabular-nums">
+                                                    {row.segment_data_created.toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="text-right tabular-nums">
+                                                    {row.unmatched_count > 0 ? (
+                                                        <span className="text-amber-600 dark:text-amber-400">
+                                                            {row.unmatched_count.toLocaleString()}
+                                                        </span>
+                                                    ) : (
+                                                        "0"
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <StatusBadge status={row.status} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <ReconcileBadge row={row} />
+                                                </TableCell>
+                                                <TableCell className="text-muted-foreground whitespace-nowrap">
+                                                    {new Date(row.created_at).toLocaleString(undefined, {
+                                                        day: "2-digit",
+                                                        month: "short",
+                                                        hour: "2-digit",
+                                                        minute: "2-digit",
+                                                    })}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <ChevronRight className="size-4 text-muted-foreground" />
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
                         )}
