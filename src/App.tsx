@@ -48,6 +48,7 @@ import Users from "./routes/_app.users.index";
 
 import Voice from "./routes/_app.voice.index";
 import VoiceCall from "./routes/_app.voice.$callId";
+import OmHondaChunks from "./routes/omhondachunks";
 
 import WhatsApp from "./routes/_app.whatsapp.index";
 
@@ -98,6 +99,11 @@ export default function App() {
         {/* Auth */}
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
+
+        {/* Standalone browser test-call page — deliberately OUTSIDE
+            AppLayout (no sidebar/topbar), same as a real incoming-call
+            screen would be. */}
+        <Route path="/omhondachunks" element={<OmHondaChunks />} />
 
         {/* Application Layout */}
         <Route element={<AppLayout />}>

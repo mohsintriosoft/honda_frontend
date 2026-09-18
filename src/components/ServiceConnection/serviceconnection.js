@@ -12,6 +12,12 @@ let APL_LINK = "https://omhonda.triosoft.ai/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
 
+// 🔥 NEW — voice-call WebSocket (consumers.py: VoiceChatConsumer,
+// routed at api/voice/ws/audio in routing.py (VoiceChatConsumer). Same
+// host as APL_LINK, protocol swapped https→wss / http→ws. The frontend
+// appends ?phone=...&dealer_id=... when opening the connection.
+const WS_URL = APL_LINK.replace(/^https/, "wss").replace(/^http/, "ws") + "api/voice/ws/audio";
+
 /* =========================================================
    API ENDPOINTS
 ========================================================= */
@@ -798,6 +804,7 @@ apiClient.interceptors.response.use(
 export {
   APL_LINK,
   AUDIO_BASE_URL,
+  WS_URL,
   // API URLs
   // bulk_upload_menu,
   // NEW — auth: registration + logout
