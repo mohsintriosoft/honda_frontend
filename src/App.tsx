@@ -1,8 +1,11 @@
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
+import { isAuthenticated } from "@/components/ServiceConnection/serviceconnection";
 
 import Home from "./routes/index";
+import Login from "./routes/login";
+import Register from "./routes/register";
 import Dashboard from "./routes/_app.dashboard";
 
 import Agents from "./routes/_app.agents.index";
@@ -56,6 +59,17 @@ function AppLayout() {
   );
 }
 
+// Gates every route under AppLayout behind a session. Swap the
+// isAuthenticated() check for a real "am I logged in" call once
+// login_user_email/register_user_email are live on the backend.
+// function RequireAuth() {
+//   if (!isAuthenticated()) {
+//     return <Navigate to="/login" replace />;
+//   }
+
+//   return <AppLayout />;
+// }
+
 function NotFound() {
   return (
     <div className="min-h-screen flex items-center justify-center">
@@ -80,6 +94,10 @@ export default function App() {
       <Routes>
         {/* Home */}
         <Route path="/" element={<Home />} />
+
+        {/* Auth */}
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
 
         {/* Application Layout */}
         <Route element={<AppLayout />}>

@@ -37,6 +37,11 @@ interface ApiSegment {
   conversion: number | null;
   active_campaign: string | null;
   campaign_status: "live" | "paused" | "draft" | null;
+  opening_line: string | null;
+  closing_line: string | null;
+  // "HH:MM", read-only here -- editable on the campaign, not the segment.
+  call_start_time: string | null;
+  call_end_time: string | null;
 }
 
 // mirrors views_admin._serialize_segment_customer_row()
@@ -147,7 +152,7 @@ export default function SegmentDetailPage() {
         actions={
           <>
             <Button size="sm" asChild>
-              <Link to="/campaigns/new">
+              <Link to={`/campaigns/${id}`}>
                 <Megaphone className="size-4" />
                 Launch campaign
               </Link>
@@ -171,6 +176,39 @@ export default function SegmentDetailPage() {
 
           <MetricTile label="Active campaign" value={segment.active_campaign ?? "—"} />
         </div>
+
+        {/* Conversation & call window — read-only. Opening/closing line are
+            edited on the segment itself (not here); the call window is
+            edited on the campaign (Campaigns page), so both are shown as
+            plain text rather than form fields. */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base font-display">Conversation & call window</CardTitle>
+          </CardHeader>
+
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-1">Opening line</div>
+                <p className="text-sm">{segment.opening_line || "—"}</p>
+              </div>
+
+              <div>
+                <div className="text-xs font-medium text-muted-foreground mb-1">Closing line</div>
+                <p className="text-sm">{segment.closing_line || "—"}</p>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs font-medium text-muted-foreground mb-1">Call window</div>
+              <p className="text-sm">
+                {segment.call_start_time && segment.call_end_time
+                  ? `${segment.call_start_time} – ${segment.call_end_time}`
+                  : "Not set"}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
 
         {/* Customers */}
         <Card>

@@ -1,12 +1,14 @@
 import axios from "axios";
-import { retrieveData } from "../LocalConnection/LocalConnection.js";
+import { retrieveData, storeData } from "../LocalConnection/LocalConnection.js";
+
+const NO_TOKEN_VALUES = ["0", "1", "", null, undefined];
 
 /* =========================================================
    BASE URL
 ========================================================= */
 
 let APL_LINK = "https://omhonda.triosoft.ai/";
-// APL_LINK = "http://localhost:8000/";
+APL_LINK = "http://localhost:8000/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
 
@@ -14,8 +16,10 @@ const AUDIO_BASE_URL = "/media/call_recordings/";
    API ENDPOINTS
 ========================================================= */
 
-const bulk_upload_menu = APL_LINK + "bulk_upload_menu";
-const login_user_email = APL_LINK + "login_user_email";
+// const bulk_upload_menu = APL_LINK + "bulk_upload_menu";
+const login_user_email = APL_LINK + "api/login_user_email";
+const register_user_email = APL_LINK + "api/register_user_email";
+const logout_user_email = APL_LINK + "api/logout_user_email";
 
 const get_segments = APL_LINK + "api/segments/";
 // 🔥 DYNAMIC CONVERSATION FLOW — opening_line/closing_line now live on
@@ -62,11 +66,15 @@ const post_quick_call_save = APL_LINK + "api/quick-call/save/";
 const get_quick_call_list = APL_LINK + "api/quick-call/list/";
 const get_quick_call_status = (sessionId) =>
   `${APL_LINK}api/quick-call/status/?session_id=${sessionId}`;
-// Places the outbound call itself (Plivo). NOTE: param names below are
-// inferred from quick_call_save's shape (phone_number/dealer_id/branch_id)
-// — views_voice.plivo_call() wasn't in the files I read, so double check
-// its expected body against quick_call.html before wiring this up.
+
+const get_quick_vehicle_customer_lookup = (phone) =>
+  `${APL_LINK}api/quick-vehicle/customer-lookup/?phone=${encodeURIComponent(phone)}`;
+
+const post_quick_vehicle_save = APL_LINK + "api/quick-vehicle/save/";
+
 const post_plivo_call = APL_LINK + "api/voice/plivo/call/";
+
+const post_plivo_end_call = APL_LINK + "api/voice/plivo/end-call/";
 const get_customers = APL_LINK + "api/customers/";
 // Customer 360 detail page (_app_customers__id.tsx).
 const get_customer_detail = (customerId) => `${APL_LINK}api/customers/${customerId}/`;
@@ -148,6 +156,13 @@ const get_import_unmatched = (id) => `${APL_LINK}api/imports/${id}/unmatched/`;
 const post_import_assign_segment = (id) => `${APL_LINK}api/imports/${id}/assign-segment/`;
 const get_import_rows = (id) => `${APL_LINK}api/imports/${id}/rows/`;
 
+// Dialer scheduler time (Imports page card) -- GET returns the current
+// Dealer.call_scheduler_hour/minute, POST saves it. See dialer_schedule /
+// update_dialer_schedule in views_admin.py and the polling read in
+// run_dialer.py's scheduler_loop().
+const get_dialer_schedule = APL_LINK + "api/dialer-schedule/";
+const post_dialer_schedule = APL_LINK + "api/dialer-schedule/update/";
+
 
 
 /* =========================================================
@@ -168,6 +183,58 @@ const getAccessToken = () => {
     console.error("Unable to retrieve access token:", error);
     return null;
   }
+};
+
+/* =========================================================
+   AUTH SESSION (login / register / logout pages)
+========================================================= */
+
+// Call after a successful login/register response. `staffUser` is whatever
+// shape the backend returns for "who am I" (name/email/role/etc.) — stored
+// as-is so AppShell's Profile menu can read it back with getStaffUser().
+const setAuthSession = (accessToken, staffUser = null) => {
+  try {
+    storeData("access_token", accessToken);
+
+    if (staffUser) {
+      storeData("staff_user", JSON.stringify(staffUser));
+    }
+  } catch (error) {
+    console.error("Unable to persist auth session:", error);
+  }
+};
+
+const getStaffUser = () => {
+  try {
+    const raw = retrieveData("staff_user");
+    if (NO_TOKEN_VALUES.includes(raw)) return null;
+    return JSON.parse(raw);
+  } catch (error) {
+    console.error("Unable to read staff user:", error);
+    return null;
+  }
+};
+
+// Local-only session clear. Safe to call even if the server-side logout
+// call (server_post_json(logout_user_email)) fails or 404s, since the
+// token is what actually gates access on this client.
+//
+// Deliberately does NOT call LocalConnection's removeData() — that helper
+// always wipes ALL of localStorage and force-navigates to "/Sign-In"
+// outside React Router. We want the same "clear everything" behavior here
+// (so no stray customer_id/final_bus_id survives a sign-out either) but
+// the navigate("/login") is left to the caller, e.g. AppShell.handleSignOut.
+const clearAuthSession = () => {
+  try {
+    localStorage.clear();
+  } catch (error) {
+    console.error("Unable to clear auth session:", error);
+  }
+};
+
+const isAuthenticated = () => {
+  const token = getAccessToken();
+  return !NO_TOKEN_VALUES.includes(token);
 };
 
 /* =========================================================
@@ -241,7 +308,7 @@ const getAuthHeaders = (url_for) => {
 
   const headers = {};
 
-  if (access_token && access_token !== "1" && url_for !== login_user_email) {
+  if (!NO_TOKEN_VALUES.includes(access_token) && url_for !== login_user_email) {
     headers.Authorization = `Bearer ${access_token}`;
   }
 
@@ -692,7 +759,7 @@ apiClient.interceptors.request.use(
     try {
       const access_token = getAccessToken();
 
-      if (access_token && access_token !== "1" && config.url !== login_user_email) {
+      if (!NO_TOKEN_VALUES.includes(access_token) && config.url !== login_user_email) {
         config.headers.Authorization = `Bearer ${access_token}`;
       }
 
@@ -732,8 +799,15 @@ export {
   APL_LINK,
   AUDIO_BASE_URL,
   // API URLs
-  bulk_upload_menu,
+  // bulk_upload_menu,
+  // NEW — auth: registration + logout
   login_user_email,
+  register_user_email,
+  logout_user_email,
+  setAuthSession,
+  getStaffUser,
+  clearAuthSession,
+  isAuthenticated,
   get_segments,
   get_segment_detail,
   patch_segment,
@@ -751,7 +825,10 @@ export {
   post_quick_call_save,
   get_quick_call_list,
   get_quick_call_status,
+  get_quick_vehicle_customer_lookup,
+  post_quick_vehicle_save,
   post_plivo_call,
+  post_plivo_end_call,
   get_customers,
   get_customer_detail,
   get_call_tasks,
@@ -809,6 +886,8 @@ export {
   get_import_unmatched,
   post_import_assign_segment,
   get_import_rows,
+  get_dialer_schedule,
+  post_dialer_schedule,
   // Basic Methods
   server_get_data,
   server_post_data,

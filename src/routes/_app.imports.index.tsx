@@ -58,7 +58,10 @@ import {
     get_imports,
     post_import_upload,
     get_branches,
+    get_dialer_schedule,
+    post_dialer_schedule,
     server_get_data,
+    server_post_json,
     server_upload_file,
 } from "@/components/ServiceConnection/serviceconnection";
 
@@ -350,6 +353,87 @@ function UploadDialog({
 }
 
 /* =========================================================
+   SCHEDULER TIME CARD
+   Sets the daily local time run_dialer.py's nightly scheduler wakes
+   up at to build tomorrow's call queue (Dealer.call_scheduler_hour /
+   call_scheduler_minute -- see dialer_schedule / update_dialer_schedule
+   in views_admin.py). Just the setter, no status info by design.
+========================================================= */
+
+function SchedulerTimeCard() {
+    const [value, setValue] = useState<string>(""); // "HH:MM", <input type="time"> format
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [saved, setSaved] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        server_get_data(get_dialer_schedule)
+            .then((res) => {
+                if (res?.success) {
+                    const hh = String(res.hour).padStart(2, "0");
+                    const mm = String(res.minute).padStart(2, "0");
+                    setValue(`${hh}:${mm}`);
+                } else {
+                    setError(res?.error || "Could not load scheduler time");
+                }
+            })
+            .catch((err: any) => setError(err?.message || "Could not load scheduler time"))
+            .finally(() => setLoading(false));
+    }, []);
+
+    const handleSave = async () => {
+        if (!value) return;
+        const [hh, mm] = value.split(":").map(Number);
+        setSaving(true);
+        setError(null);
+        setSaved(false);
+        try {
+            const res = await server_post_json(post_dialer_schedule, { hour: hh, minute: mm });
+            if (!res?.success) throw new Error(res?.error || "Save failed");
+            setSaved(true);
+            setTimeout(() => setSaved(false), 2000);
+        } catch (err: any) {
+            setError(err?.response?.data?.error || err?.message || "Save failed");
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    return (
+        <Card className="mb-4">
+            <CardHeader className="pb-3">
+                <CardTitle className="text-base">Dialer scheduler time</CardTitle>
+            </CardHeader>
+            <CardContent className="flex items-center gap-3">
+                {loading ? (
+                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                ) : (
+                    <>
+                        <Input
+                            type="time"
+                            value={value}
+                            onChange={(e) => setValue(e.target.value)}
+                            className="w-32"
+                        />
+                        <Button onClick={handleSave} disabled={saving || !value} className="gap-2">
+                            {saving && <Loader2 className="size-4 animate-spin" />}
+                            {saving ? "Saving…" : "Save"}
+                        </Button>
+                        {saved && (
+                            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+                                <CheckCircle2 className="size-3.5" /> Saved
+                            </span>
+                        )}
+                        {error && <span className="text-xs text-destructive">{error}</span>}
+                    </>
+                )}
+            </CardContent>
+        </Card>
+    );
+}
+
+/* =========================================================
    PAGE
 ========================================================= */
 
@@ -416,6 +500,8 @@ export default function Imports() {
                         <AlertDescription>{error}</AlertDescription>
                     </Alert>
                 )}
+
+                <SchedulerTimeCard />
 
                 <Card>
                     <CardHeader className="pb-3">

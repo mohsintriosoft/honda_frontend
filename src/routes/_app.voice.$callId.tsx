@@ -1,13 +1,11 @@
 import { Link, useParams } from "react-router-dom";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PageHeader } from "@/components/layout/AppShell";
-import { calls, customers } from "@/mocks/data";
-import { getCallScript, type TranscriptLine, type CallScript } from "@/mocks/transcripts";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { StatusBadge } from "@/components/data/StatusBadge";
 
 import {
@@ -17,46 +15,77 @@ import {
   AlertTriangle,
   User,
   Languages,
-  Volume2,
+  ShieldAlert,
   Loader2,
 } from "lucide-react";
 
 import { formatDateTime } from "@/lib/format";
 
-interface TtsOpts {
-  voice?: string;
-  gender?: "female" | "male";
-  agent?: string;
+import {
+  get_recording_detail,
+  server_get_data,
+  APL_LINK,
+} from "@/components/ServiceConnection/serviceconnection";
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
+function joinUrl(...parts: string[]): string {
+  return parts
+    .map((p, i) => (i === 0 ? p.replace(/\/+$/, "") : p.replace(/^\/+/, "").replace(/\/+$/, "")))
+    .filter(Boolean)
+    .join("/");
 }
 
-/* -------------------------------------------------------------------------- */
-/* TTS                                                                        */
-/* -------------------------------------------------------------------------- */
+// Same approach as the recordings library page's getAudioSrc: we don't care
+// about the raw file path on disk, we always stream through recording_audio
+// by numeric id. Empty string (rather than a broken URL) when there's
+// nothing to play, e.g. a call that never got a mixed/stereo file.
+function getAudioSrc(session: any): string {
+  if (!session || (!session.recording_mixed && !session.recording_stereo)) {
+    return "";
+  }
+  return joinUrl(APL_LINK, `/api/recordings/${session.id}/audio/`);
+}
 
-function playTts(audio: HTMLAudioElement, text: string, opts: TtsOpts = {}, signal?: AbortSignal) {
-  return fetch("/api/tts", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      text,
-      ...opts,
-    }),
-    signal,
-  }).then(async (res) => {
-    if (!res.ok) {
-      throw new Error(await res.text().catch(() => "TTS failed"));
-    }
+interface TranscriptTurn {
+  who: "ai" | "customer";
+  text: string;
+  t: string;
+  filler?: string;
+}
 
-    const blob = await res.blob();
+// CallSession.transcript is a JSON mirror of ConversationTurn — speaker is
+// 'bot' | 'customer'. Mapped the exact same way the recordings library page
+// (_app_agents_recordings_index.tsx / mapRecordingApiToRecording) does it,
+// since that's the one place this shape has already been confirmed against
+// the real backend response.
+function mapTranscript(raw: any): TranscriptTurn[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((t: any) => ({
+    who: t.speaker === "bot" ? "ai" : "customer",
+    text: t.text ?? "",
+    t: t.at ?? t.timestamp ?? "",
+    filler: t.filler ?? "",
+  }));
+}
 
-    const objectUrl = URL.createObjectURL(blob);
+function detectedIntents(session: any): string[] {
+  if (!Array.isArray(session?.intent_history)) return [];
+  return Array.from(
+    new Set(
+      session.intent_history
+        .map((h: any) => h?.intent)
+        .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
+    )
+  );
+}
 
-    audio.src = objectUrl;
-
-    return audio.play();
-  });
+function formatClockTime(totalSeconds: number): string {
+  const m = Math.floor(totalSeconds / 60);
+  const s = totalSeconds % 60;
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -66,20 +95,60 @@ function playTts(audio: HTMLAudioElement, text: string, opts: TtsOpts = {}, sign
 export default function CallDetailPage() {
   const { callId } = useParams();
 
-  const call = calls.find((c) => c.id === callId);
+  // callId here is the CallSession numeric `id` (recording_detail /
+  // recording_audio both key on pk, NOT the session_id UUID) — see the
+  // fixed links on the Voice index page.
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!callId) return;
+
+    let cancelled = false;
+
+    async function fetchDetail() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const data = await server_get_data(get_recording_detail(callId));
+        if (!cancelled) setSession(data);
+      } catch (err) {
+        console.error("Failed to load call detail:", err);
+        if (!cancelled) setError("Couldn't load this call.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchDetail();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [callId]);
 
   /* ------------------------------------------------------------------------ */
-  /* Not Found                                                                */
+  /* Loading / Not Found                                                      */
   /* ------------------------------------------------------------------------ */
 
-  if (!call) {
+  if (loading) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center px-4">
+        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (error || !session) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center px-4">
         <div className="text-center">
           <h1 className="text-3xl font-bold">Call not found</h1>
 
           <p className="mt-2 text-sm text-muted-foreground">
-            The call you're looking for doesn't exist or has been removed.
+            {error || "The call you're looking for doesn't exist or has been removed."}
           </p>
 
           <Button className="mt-5" asChild>
@@ -90,131 +159,88 @@ export default function CallDetailPage() {
     );
   }
 
-  const customer = customers.find((c) => c.id === call.customerId);
-
-  const script = getCallScript(call.id);
-
-  return <CallDetailContent call={call} customer={customer} script={script} />;
+  return <CallDetailContent session={session} />;
 }
 
 /* -------------------------------------------------------------------------- */
 /* Call Detail Content                                                        */
 /* -------------------------------------------------------------------------- */
 
-function CallDetailContent({
-  call,
-  customer,
-  script,
-}: {
-  call: (typeof calls)[number];
-  customer: (typeof customers)[number] | undefined;
-  script: CallScript;
-}) {
+function CallDetailContent({ session }: { session: any }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+  const [audioError, setAudioError] = useState<string | null>(null);
 
-  const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
+  // No `src` on the <audio> tag until Play is actually clicked once — same
+  // lazy-load pattern as the recordings library page, so just opening this
+  // page never silently pulls the audio file.
+  const [audioReady, setAudioReady] = useState(false);
 
-  const [fullPlaying, setFullPlaying] = useState(false);
+  const audioSrc = getAudioSrc(session);
+  const transcript = mapTranscript(session.transcript);
+  const intents = detectedIntents(session);
 
-  const [fullLoading, setFullLoading] = useState(false);
+  const customerName = session.customer?.name || session.customer?.phone_number || "Unknown";
 
-  /* ------------------------------------------------------------------------ */
-  /* Audio                                                                     */
-  /* ------------------------------------------------------------------------ */
+  // Reset playback state if this ever mounts against a different session
+  // (e.g. navigating call-to-call without unmounting).
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setAudioDuration(0);
+    setAudioError(null);
+    setAudioReady(false);
 
-  function ensureAudio() {
-    if (!audioRef.current) {
-      const audio = new Audio();
-
-      audio.onended = () => {
-        setPlayingIdx(null);
-        setFullPlaying(false);
-      };
-
-      audio.onpause = () => {
-        setPlayingIdx(null);
-        setFullPlaying(false);
-      };
-
-      audioRef.current = audio;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
     }
+  }, [session.id]);
 
-    return audioRef.current;
-  }
+  function togglePlayback() {
+    const audio = audioRef.current;
+    if (!audio) return;
 
-  /* ------------------------------------------------------------------------ */
-  /* Play individual AI line                                                  */
-  /* ------------------------------------------------------------------------ */
-
-  function handleLineClick(idx: number, line: TranscriptLine) {
-    const audio = ensureAudio();
-
-    // Stop current audio if same line is clicked
-    if (playingIdx === idx) {
+    if (isPlaying) {
       audio.pause();
       return;
     }
 
-    audio.pause();
+    if (!audioReady) {
+      // First tap on Play — this is the moment the audio file is actually
+      // requested. The effect below fires playback once the <audio>
+      // element has picked up the new src.
+      setAudioReady(true);
+      return;
+    }
 
-    setLoadingIdx(idx);
-
-    playTts(audio, line.text, {
-      voice: script.voice,
-      gender: script.gender,
-      agent: script.agent,
-    })
-      .then(() => {
-        setPlayingIdx(idx);
-      })
-      .catch((error) => {
-        console.error("TTS error:", error);
-      })
-      .finally(() => {
-        setLoadingIdx(null);
-      });
+    void audio.play().catch(() => {
+      setAudioError("Couldn't play this recording — the file may be unavailable.");
+    });
   }
 
-  /* ------------------------------------------------------------------------ */
-  /* Play complete AI conversation                                             */
-  /* ------------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!audioReady) return;
 
-  function handlePlayFull() {
-    const audio = ensureAudio();
+    const audio = audioRef.current;
+    if (!audio) return;
 
-    if (fullPlaying) {
-      audio.pause();
-      setFullPlaying(false);
-      return;
-    }
+    void audio.play().catch(() => {
+      setAudioError("Couldn't play this recording — the file may be unavailable.");
+    });
+  }, [audioReady]);
 
-    const aiLines = script.lines
-      .filter((line) => line.who === "ai")
-      .map((line) => line.text)
-      .join(" ");
+  function seekTo(ratio: number) {
+    const audio = audioRef.current;
+    if (!audio || !audioDuration) return;
 
-    if (!aiLines.trim()) {
-      return;
-    }
-
-    setFullLoading(true);
-
-    playTts(audio, aiLines, {
-      voice: script.voice,
-      gender: script.gender,
-      agent: script.agent,
-    })
-      .then(() => {
-        setFullPlaying(true);
-      })
-      .catch((error) => {
-        console.error("Full TTS error:", error);
-      })
-      .finally(() => {
-        setFullLoading(false);
-      });
+    const clamped = Math.min(1, Math.max(0, ratio));
+    audio.currentTime = clamped * audioDuration;
+    setCurrentTime(audio.currentTime);
   }
 
   /* ------------------------------------------------------------------------ */
@@ -231,22 +257,26 @@ function CallDetailContent({
             to: "/voice",
           },
           {
-            label: call.id,
+            label: `Session #${session.id}`,
           },
         ]}
         actions={
           <>
+            {/* No escalation endpoint exists on the backend yet — this stays
+                UI-only until one is built. */}
             <Button variant="outline" size="sm">
               <AlertTriangle className="size-4" />
               Escalate
             </Button>
 
-            <Button variant="outline" size="sm" asChild>
-              <Link to={`/customers/${call.customerId}`}>
-                <User className="size-4" />
-                View customer
-              </Link>
-            </Button>
+            {session.customer?.id && (
+              <Button variant="outline" size="sm" asChild>
+                <Link to={`/customers/${session.customer.id}`}>
+                  <User className="size-4" />
+                  View customer
+                </Link>
+              </Button>
+            )}
           </>
         }
       />
@@ -258,55 +288,83 @@ function CallDetailContent({
           {/* ---------------------------------------------------------------- */}
 
           <Card>
-            <CardContent className="py-4">
+            <CardContent className="py-4 space-y-2">
               <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                <audio
+                  ref={audioRef}
+                  src={audioReady ? audioSrc : undefined}
+                  preload="none"
+                  onLoadedMetadata={(e) => setAudioDuration(e.currentTarget.duration || 0)}
+                  onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onEnded={() => setIsPlaying(false)}
+                  onError={() =>
+                    setAudioError("Couldn't load this recording — the file may be unavailable.")
+                  }
+                />
+
                 <Button
                   size="icon"
                   className="rounded-full size-12"
-                  onClick={handlePlayFull}
-                  disabled={fullLoading}
+                  onClick={togglePlayback}
+                  disabled={!audioSrc}
                 >
-                  {fullLoading ? (
-                    <Loader2 className="size-5 animate-spin" />
-                  ) : fullPlaying ? (
-                    <Pause className="size-5" />
-                  ) : (
-                    <Play className="size-5" />
-                  )}
+                  {isPlaying ? <Pause className="size-5" /> : <Play className="size-5" />}
                 </Button>
 
                 <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">
-                    {call.customerName}
-                    {customer?.vehicle?.model ? ` • ${customer.vehicle.model}` : ""}
-                  </div>
+                  <div className="font-medium truncate">{customerName}</div>
 
                   <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
                     <span>
-                      {formatDateTime(call.startedAt)} • {Math.floor(call.durationSec / 60)}m{" "}
-                      {call.durationSec % 60}s
+                      {session.started_at_ist ? formatDateTime(session.started_at_ist) : "—"} •{" "}
+                      {session.duration_seconds != null
+                        ? `${Math.floor(session.duration_seconds / 60)}m ${session.duration_seconds % 60}s`
+                        : "—"}
                     </span>
 
                     <span className="inline-flex items-center gap-1 rounded-full bg-secondary px-2 py-0.5">
                       <Languages className="size-3" />
-                      Bhopali Hindi
-                    </span>
-
-                    <span className="text-[11px]">
-                      Tap "Play" for AI voice • tap any AI line to hear it
+                      {session.language || "Hindi"}
                     </span>
                   </div>
 
-                  <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all"
-                      style={{
-                        width: fullPlaying ? "62%" : "32%",
-                      }}
+                  <div
+                    className="mt-2 cursor-pointer"
+                    onClick={(e) => {
+                      if (!audioSrc) return;
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      const ratio = (e.clientX - rect.left) / rect.width;
+                      seekTo(ratio);
+                    }}
+                  >
+                    <Progress
+                      value={audioDuration ? (currentTime / audioDuration) * 100 : 0}
+                      className="h-1.5"
                     />
                   </div>
                 </div>
+
+                <span className="text-xs tabular-nums text-muted-foreground">
+                  {formatClockTime(Math.floor(currentTime))} /{" "}
+                  {formatClockTime(Math.floor(audioDuration || session.duration_seconds || 0))}
+                </span>
               </div>
+
+              {!audioSrc && (
+                <p className="text-xs text-muted-foreground">
+                  No recording is available for this call.
+                </p>
+              )}
+
+              {audioError && (
+                <div className="flex items-center gap-2 text-xs text-destructive">
+                  <ShieldAlert className="size-3.5 shrink-0" />
+                  <span>{audioError}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -320,19 +378,21 @@ function CallDetailContent({
                 <span>Transcript</span>
 
                 <span className="text-[11px] font-normal text-muted-foreground">
-                  {script.agent} ({script.gender === "male" ? "Male AI" : "Female AI"}) ↔{" "}
-                  {call.customerName}
+                  {session.agent?.persona_name || session.agent?.agent_name || "AI agent"} ↔{" "}
+                  {customerName}
                 </span>
               </CardTitle>
             </CardHeader>
 
             <CardContent className="space-y-3 max-h-[60vh] overflow-y-auto">
-              {script.lines.map((t: TranscriptLine, i: number) => {
+              {transcript.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  No transcript recorded for this call.
+                </p>
+              )}
+
+              {transcript.map((t, i) => {
                 const isAi = t.who === "ai";
-
-                const isPlaying = playingIdx === i;
-
-                const isLoading = loadingIdx === i;
 
                 return (
                   <div key={i} className={`flex gap-3 ${isAi ? "" : "justify-end"}`}>
@@ -346,46 +406,15 @@ function CallDetailContent({
                     {/* Message */}
                     <div
                       className={`
-                          group
                           max-w-[75%]
                           rounded-2xl
                           px-3
                           py-2
                           text-sm
                           ${isAi ? "bg-muted" : "bg-primary text-primary-foreground"}
-                          ${isAi ? "cursor-pointer hover:bg-muted/80" : ""}
-                          ${isPlaying ? "ring-2 ring-[color:var(--ai)]" : ""}
                         `}
-                      onClick={isAi ? () => handleLineClick(i, t) : undefined}
-                      role={isAi ? "button" : undefined}
-                      tabIndex={isAi ? 0 : undefined}
-                      onKeyDown={
-                        isAi
-                          ? (e) => {
-                              if (e.key === "Enter" || e.key === " ") {
-                                e.preventDefault();
-
-                                handleLineClick(i, t);
-                              }
-                            }
-                          : undefined
-                      }
                     >
-                      <div className="flex items-start gap-2">
-                        <span className="flex-1">{t.text}</span>
-
-                        {isAi && (
-                          <span className="mt-0.5 text-[color:var(--ai)] shrink-0">
-                            {isLoading ? (
-                              <Loader2 className="size-3.5 animate-spin" />
-                            ) : isPlaying ? (
-                              <Volume2 className="size-3.5 animate-pulse" />
-                            ) : (
-                              <Play className="size-3.5 opacity-40 group-hover:opacity-100" />
-                            )}
-                          </span>
-                        )}
-                      </div>
+                      <span>{t.text}</span>
 
                       {t.t && (
                         <div
@@ -404,7 +433,7 @@ function CallDetailContent({
                     {/* Customer Avatar */}
                     {!isAi && (
                       <div className="size-8 shrink-0 rounded-full bg-secondary grid place-items-center text-xs font-bold">
-                        {call.customerName
+                        {customerName
                           .split(" ")
                           .map((p: string) => p[0])
                           .join("")
@@ -424,16 +453,18 @@ function CallDetailContent({
 
         <aside className="space-y-3">
           {/* AI Summary */}
-          <Card className="ai-gradient ai-border">
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-1.5 font-display">
-                <Sparkles className="size-4 text-[color:var(--ai)]" />
-                AI summary
-              </CardTitle>
-            </CardHeader>
+          {session.call_summary && (
+            <Card className="ai-gradient ai-border">
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-1.5 font-display">
+                  <Sparkles className="size-4 text-[color:var(--ai)]" />
+                  AI summary
+                </CardTitle>
+              </CardHeader>
 
-            <CardContent className="text-sm">{script.summary}</CardContent>
-          </Card>
+              <CardContent className="text-sm">{session.call_summary}</CardContent>
+            </Card>
+          )}
 
           {/* Disposition */}
           <Card>
@@ -442,34 +473,56 @@ function CallDetailContent({
             </CardHeader>
 
             <CardContent className="space-y-2 text-sm">
-              <Row k="Status" v={<StatusBadge status={call.disposition} />} />
+              <Row k="Status" v={<StatusBadge status={session.status} />} />
 
-              <Row k="Intent" v={script.intent} />
+              <Row
+                k="Outcome"
+                v={
+                  session.final_intent_code ? (
+                    <StatusBadge status={session.final_intent_code} />
+                  ) : (
+                    "—"
+                  )
+                }
+              />
 
-              <Row k="Language" v="Hindi (Bhopali)" />
+              <Row k="Language" v={session.language || "—"} />
 
-              <Row k="Confidence" v={`${call.confidence}%`} />
+              <Row
+                k="Quality"
+                v={session.quality_pct != null ? `${session.quality_pct}%` : "—"}
+              />
 
-              <Row k="Outcome" v="Appointment booked" />
-
-              <Row k="Next action" v="WhatsApp confirmation sent" />
+              <Row
+                k="Cost"
+                v={
+                  typeof session.total_cost === "number"
+                    ? `₹${session.total_cost.toFixed(2)}`
+                    : "—"
+                }
+              />
             </CardContent>
           </Card>
 
-          {/* Tags */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm font-display">Tags</CardTitle>
-            </CardHeader>
+          {/* Detected intents (no free-form "tags" field on the backend —
+              this is the closest real equivalent, derived from
+              intent_history the same way the recordings library page
+              derives it). */}
+          {intents.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-display">Detected intents</CardTitle>
+              </CardHeader>
 
-            <CardContent className="flex flex-wrap gap-1.5">
-              {script.tags.map((tag: string) => (
-                <span key={tag} className="text-[11px] rounded-full bg-secondary px-2 py-0.5">
-                  {tag}
-                </span>
-              ))}
-            </CardContent>
-          </Card>
+              <CardContent className="flex flex-wrap gap-1.5">
+                {intents.map((tag) => (
+                  <span key={tag} className="text-[11px] rounded-full bg-secondary px-2 py-0.5">
+                    {tag}
+                  </span>
+                ))}
+              </CardContent>
+            </Card>
+          )}
         </aside>
       </div>
     </>

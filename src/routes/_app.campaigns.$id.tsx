@@ -35,6 +35,8 @@ import {
   campaign_resume,
   get_recordings,
   get_branches,
+  get_segment_detail,
+  patch_segment,
   server_get_data,
   server_post_data,
   server_patch_data,
@@ -140,6 +142,17 @@ interface RecentCall {
   started_at: string | null;
 }
 
+// Mirrors _serialize_segment()'s fields — only the ones this page actually
+// shows (calling window + description). Fetched separately from
+// get_campaign_detail(), which only carries the brief {id, name}.
+interface SegmentDetail {
+  id: number;
+  description: string | null;
+  match_service_type: string | null;
+  days_before: number;
+  days_after: number;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Page                                                                        */
 /* -------------------------------------------------------------------------- */
@@ -155,6 +168,7 @@ export default function CampaignDetailPage() {
   const [history, setHistory] = useState<CampaignBatch[]>([]);
   const [calls, setCalls] = useState<RecentCall[]>([]);
   const [branches, setBranches] = useState<BranchOption[]>([]);
+  const [segmentDetail, setSegmentDetail] = useState<SegmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [actionPending, setActionPending] = useState(false);
@@ -181,6 +195,15 @@ export default function CampaignDetailPage() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  // Segment's calling window — lives on a separate resource (PATCH
+  // /api/segments/{id}/) but is saved by the same "Save" button as the
+  // campaign fields below (see saveSettings).
+  const [segmentForm, setSegmentForm] = useState({
+    days_before: 7,
+    days_after: 30,
+  });
+  const [segmentDirty, setSegmentDirty] = useState(false);
 
   const load = () => {
     if (!id) return;
@@ -229,6 +252,36 @@ export default function CampaignDetailPage() {
       .catch(() => setBranches([]));
   }, []);
 
+  // get_campaign_detail only carries the segment's {id, name} — the
+  // calling window (days_before/days_after) lives on the segment's own
+  // record, fetched separately here.
+  useEffect(() => {
+    const segmentId = campaign?.segment?.id;
+    if (!segmentId) {
+      setSegmentDetail(null);
+      return;
+    }
+    server_get_data(get_segment_detail(segmentId))
+      .then((res) => {
+        const detail: SegmentDetail | null = res?.segment ?? null;
+        setSegmentDetail(detail);
+        if (detail) {
+          setSegmentForm({
+            days_before: detail.days_before,
+            days_after: detail.days_after,
+          });
+          setSegmentDirty(false);
+        }
+      })
+      .catch(() => setSegmentDetail(null));
+  }, [campaign?.segment?.id]);
+
+  const updateSegmentForm = (patch: Partial<typeof segmentForm>) => {
+    setSegmentForm((prev) => ({ ...prev, ...patch }));
+    setSegmentDirty(true);
+    setSaved(false);
+  };
+
   const updateForm = (patch: Partial<typeof form>) => {
     setForm((prev) => ({ ...prev, ...patch }));
     setDirty(true);
@@ -248,19 +301,37 @@ export default function CampaignDetailPage() {
     setSaving(true);
     setSaveError(null);
 
-    server_patch_data(patch_campaign(id), {
-      daily_call_limit: form.daily_call_limit,
-      min_daily_calls: form.min_daily_calls,
-      call_start_time: form.call_start_time,
-      call_end_time: form.call_end_time,
-      call_days: form.call_days,
-      max_attempts: form.max_attempts,
-      retry_gap_days: form.retry_gap_days,
-      priority: form.priority,
-      extra_prompt: form.extra_prompt,
-      // NULL = whole dealer (docs §11.5) — the select uses "" for that.
-      branch_id: form.branch_id === "" ? null : form.branch_id,
-    })
+    const requests: Promise<unknown>[] = [
+      server_patch_data(patch_campaign(id), {
+        daily_call_limit: form.daily_call_limit,
+        min_daily_calls: form.min_daily_calls,
+        call_start_time: form.call_start_time,
+        call_end_time: form.call_end_time,
+        call_days: form.call_days,
+        max_attempts: form.max_attempts,
+        retry_gap_days: form.retry_gap_days,
+        priority: form.priority,
+        extra_prompt: form.extra_prompt,
+        // NULL = whole dealer (docs §11.5) — the select uses "" for that.
+        branch_id: form.branch_id === "" ? null : form.branch_id,
+      }),
+    ];
+
+    // Calling window lives on the Segment, a separate resource — only
+    // PATCH it if it's actually the thing that changed.
+    if (segmentDirty && segmentDetail) {
+      requests.push(
+        server_patch_data(patch_segment(segmentDetail.id), {
+          days_before: segmentForm.days_before,
+          days_after: segmentForm.days_after,
+        }).then((res) => {
+          if (res?.segment) setSegmentDetail(res.segment);
+          setSegmentDirty(false);
+        })
+      );
+    }
+
+    Promise.all(requests)
       .then(() => {
         setDirty(false);
         setSaved(true);
@@ -465,11 +536,14 @@ export default function CampaignDetailPage() {
         </div>
 
         {/* Linked configuration — a campaign is just "who" (segment) +
-            "how" (agent) + operational controls (docs §11.1). The opening
-            line, calling window (days_before/after) and knowledge base
-            live on the Segment; persona/voice/system prompt live on the
-            Agent. Neither is editable here (docs §11.1/§11.6) — this card
-            makes sure they're at least reachable from the campaign. */}
+            "how" (agent) + operational controls (docs §11.1). Opening
+            line/closing line, description and the knowledge base still
+            live entirely on the Segment page (linked out below); the
+            segment's calling window is edited from the "Targeting,
+            schedule & limits" card below instead, since it's an
+            operational control in the same spirit as call_days/timing.
+            Persona/voice/system prompt live on the Agent (also linked
+            out). */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-display">Linked configuration</CardTitle>
@@ -486,7 +560,7 @@ export default function CampaignDetailPage() {
                 <span className="font-medium">{c.segment?.name ?? "—"}</span>
               </span>
               <span className="text-xs text-muted-foreground">
-                Opening line, calling window &amp; knowledge →
+                Opening line, closing line &amp; description →
               </span>
             </Link>
 
@@ -508,21 +582,26 @@ export default function CampaignDetailPage() {
 
         {/* Editable operational controls — every field docs §11.5 lists
             under Targeting.branch, Content.extra_prompt and "Operational
-            controls", not just daily_call_limit/timing/days. One Save
-            button commits the whole form together, same PATCH the toggle
-            actions below hit (docs §19.6 "PATCH — Edit, toggle, change
-            limit"). */}
+            controls", not just daily_call_limit/timing/days. Also includes
+            the segment's calling window (days_before/days_after) even
+            though that's a different resource (PATCH /api/segments/{id}/,
+            not /campaigns/{id}/) — saveSettings fires both PATCHes
+            together behind the one Save button. */}
         <Card>
           <CardHeader className="flex-row items-center justify-between">
             <CardTitle className="text-base font-display">Targeting, schedule &amp; limits</CardTitle>
 
             <div className="flex items-center gap-2">
-              {saved && !dirty && (
+              {saved && !dirty && !segmentDirty && (
                 <span className="text-xs text-emerald-500">Saved</span>
               )}
               {saveError && <span className="text-xs text-destructive">{saveError}</span>}
 
-              <Button size="sm" onClick={saveSettings} disabled={!dirty || saving}>
+              <Button
+                size="sm"
+                onClick={saveSettings}
+                disabled={(!dirty && !segmentDirty) || saving}
+              >
                 <Save className="size-4" />
                 {saving ? "Saving…" : "Save"}
               </Button>
@@ -566,22 +645,12 @@ export default function CampaignDetailPage() {
                 />
               </div>
 
-              <div>
-                <Label>Min daily calls (floor)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  className="mt-1"
-                  value={form.min_daily_calls}
-                  onChange={(e) => updateForm({ min_daily_calls: Number(e.target.value) })}
-                />
-              </div>
             </div>
-            <p className="text-xs text-muted-foreground -mt-2 md:col-start-2">
+            {/* <p className="text-xs text-muted-foreground -mt-2 md:col-start-2">
               Max CallTasks created per night, and a floor so a smaller segment isn't starved. Every
               active campaign's limit is validated against the dealer's daily call budget (a
               warning, not a hard block).
-            </p>
+            </p> */}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -605,7 +674,7 @@ export default function CampaignDetailPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3">
+            {/* <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label>Priority</Label>
                 <Input
@@ -639,12 +708,12 @@ export default function CampaignDetailPage() {
                   onChange={(e) => updateForm({ retry_gap_days: Number(e.target.value) })}
                 />
               </div>
-            </div>
+            </div> */}
 
-            <p className="text-xs text-muted-foreground md:col-start-2 -mt-2">
+            {/* <p className="text-xs text-muted-foreground md:col-start-2 -mt-2">
               Dial order when tasks compete (0–100), how many attempts before a task is exhausted,
               and how many days between attempts.
-            </p>
+            </p> */}
 
             <div className="md:col-span-2">
               <Label>Call days</Label>
@@ -671,7 +740,42 @@ export default function CampaignDetailPage() {
               </p>
             </div>
 
-            <div className="md:col-span-2">
+            {segmentDetail && (
+              <div className="md:col-span-2">
+                <Label>Calling window</Label>
+                <div className="mt-1 flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-muted-foreground">Call starts</span>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="w-20"
+                    value={segmentForm.days_before}
+                    onChange={(e) =>
+                      updateSegmentForm({ days_before: Number(e.target.value) })
+                    }
+                  />
+                  <span className="text-sm text-muted-foreground">
+                    days before, tries until
+                  </span>
+                  <Input
+                    type="number"
+                    min={0}
+                    className="w-20"
+                    value={segmentForm.days_after}
+                    onChange={(e) =>
+                      updateSegmentForm({ days_after: Number(e.target.value) })
+                    }
+                  />
+                  <span className="text-sm text-muted-foreground">days after the due date</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Lives on the segment ({c.segment?.name}), not the campaign — changing it
+                  affects every campaign using this segment.
+                </p>
+              </div>
+            )}
+
+            {/* <div className="md:col-span-2">
               <Label>Prompt override</Label>
               <Textarea
                 className="mt-1"
@@ -684,7 +788,7 @@ export default function CampaignDetailPage() {
                 Optional. Joins onto the linked agent's system prompt — leave blank to use the
                 agent's prompt as-is.
               </p>
-            </div>
+            </div> */}
           </CardContent>
         </Card>
 
@@ -772,7 +876,7 @@ export default function CampaignDetailPage() {
                   <TableRow key={call.id}>
                     <TableCell>
                       <Link
-                        to={`/voice/${call.session_id}`}
+                        to={`/voice/${call.id}`}
                         className="text-sm font-medium hover:text-primary"
                       >
                         {call.customer?.name ?? call.customer?.phone_number ?? "Unknown"}

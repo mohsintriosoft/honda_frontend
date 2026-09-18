@@ -1,4 +1,4 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Users,
@@ -43,6 +43,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "./CommandPalette";
+import {
+  server_post_json,
+  logout_user_email,
+  clearAuthSession,
+  getStaffUser,
+} from "@/components/ServiceConnection/serviceconnection";
 
 const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -71,8 +77,35 @@ const secondary = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [dark, setDark] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+
+  // Falls back to the placeholder identity below until the login page is
+  // wired up to actually populate "staff_user" via setAuthSession().
+  const staffUser = getStaffUser();
+  const displayName = staffUser?.name || "Rajesh Saini";
+  const initials = displayName
+    .split(" ")
+    .map((part: string) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  const handleSignOut = async () => {
+    setSigningOut(true);
+    try {
+      // Best-effort — logout_user_email doesn't exist on the backend yet.
+      // The local session clear below is what actually logs the user out
+      // of this client, so a failed/404 request here is not fatal.
+      await server_post_json(logout_user_email).catch(() => { });
+    } finally {
+      clearAuthSession();
+      setSigningOut(false);
+      navigate("/login", { replace: true });
+    }
+  };
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
@@ -243,25 +276,20 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <button className="ml-1 flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-accent">
                   <Avatar className="size-7">
                     <AvatarFallback className="text-xs bg-primary text-primary-foreground">
-                      RS
+                      {initials || "U"}
                     </AvatarFallback>
                   </Avatar>
                   <div className="hidden lg:block text-left leading-tight">
-                    <div className="text-xs font-medium">Rajesh Saini</div>
-                    <div className="text-[10px] text-muted-foreground">Service Manager</div>
+                    <div className="text-xs font-medium">{displayName}</div>
                   </div>
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel>Switch role (demo)</DropdownMenuLabel>
-                <DropdownMenuItem>Super Admin</DropdownMenuItem>
-                <DropdownMenuItem>Dealer Principal</DropdownMenuItem>
-                <DropdownMenuItem>Service Manager ✓</DropdownMenuItem>
-                <DropdownMenuItem>Service Advisor</DropdownMenuItem>
-                <DropdownMenuItem>Call Center</DropdownMenuItem>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={() => navigate("/settings")}>Profile</DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem>Profile</DropdownMenuItem>
-                <DropdownMenuItem>Sign out</DropdownMenuItem>
+                <DropdownMenuItem onClick={handleSignOut} disabled={signingOut}>
+                  {signingOut ? "Signing out…" : "Sign out"}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
