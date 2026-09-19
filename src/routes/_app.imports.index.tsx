@@ -10,6 +10,7 @@ import {
     Clock,
     RotateCcw,
     ChevronRight,
+    Trash2,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/AppShell";
@@ -57,13 +58,19 @@ import { cn } from "@/lib/utils";
 import {
     get_imports,
     post_import_upload,
+    post_import_delete,
     get_branches,
     get_dialer_schedule,
     post_dialer_schedule,
     server_get_data,
     server_post_json,
+    server_post_data,
     server_upload_file,
 } from "@/components/ServiceConnection/serviceconnection";
+// NOTE: post_import_delete follows the same shape as post_import_commit/
+// post_import_revert used on the import detail page (a function of the
+// import id that builds the POST /api/imports/{id}/delete/ endpoint) --
+// add it there alongside those two if it isn't already exported.
 
 /* =========================================================
    TYPES — mirror _serialize_csv_stats() in views_import.py
@@ -177,6 +184,17 @@ function StatusBadge({ status }: { status: ImportStatus }) {
 function latestImportError(row: CsvStatsRow) {
     const log = row.error_log ?? [];
     return log.length > 0 ? log[log.length - 1] : null;
+}
+
+// Deletable only when nothing has actually been committed yet -- once
+// status is 'done' the import owns real Customer/Vehicle/CampaignBatch/
+// CsvSegmentData rows and has to go through Revert instead (on the detail
+// page), and 'processing' means a commit is actively running right now.
+// Every other status (uploaded, parsing, preview_ready, failed, reverted)
+// made no committed writes and is safe to discard outright. Mirrors the
+// same check the backend makes in import_delete().
+function canDeleteImport(status: ImportStatus) {
+    return status !== "done" && status !== "processing";
 }
 
 function ReconcileBadge({ row }: { row: CsvStatsRow }) {
@@ -364,6 +382,103 @@ function UploadDialog({
                     <Button onClick={handleSubmit} disabled={!canSubmit} className="gap-2">
                         {submitting && <Loader2 className="size-4 animate-spin" />}
                         {submitting ? "Uploading…" : "Upload and parse"}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
+    );
+}
+
+/* =========================================================
+   DELETE DIALOG
+   Only rendered for rows canDeleteImport() allows -- an import that
+   was never committed. A committed one has real downstream data and
+   needs Revert instead, from the import detail page.
+========================================================= */
+
+function DeleteDialog({
+    row,
+    onDeleted,
+}: {
+    row: CsvStatsRow;
+    onDeleted: (id: number) => void;
+}) {
+    const [open, setOpen] = useState(false);
+    const [busy, setBusy] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const handleDelete = async () => {
+        setBusy(true);
+        setError(null);
+        try {
+            const res = await server_post_data(post_import_delete(row.id));
+            if (!res?.success) throw new Error(res?.error || "Delete failed");
+            onDeleted(row.id);
+            setOpen(false);
+        } catch (err: any) {
+            setError(
+                err?.response?.data?.error ||
+                err?.message ||
+                "Delete failed, nothing was changed.",
+            );
+        } finally {
+            setBusy(false);
+        }
+    };
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(o) => {
+                setOpen(o);
+                if (!o) setError(null);
+            }}
+        >
+            <DialogTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-7 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                        // The row itself navigates on click -- this button
+                        // sits inside that row, so stop it there.
+                        e.stopPropagation();
+                    }}
+                    title="Delete this upload"
+                >
+                    <Trash2 className="size-4" />
+                </Button>
+            </DialogTrigger>
+            <DialogContent onClick={(e) => e.stopPropagation()}>
+                <DialogHeader>
+                    <DialogTitle>Delete this upload?</DialogTitle>
+                    <DialogDescription>
+                        <span className="font-medium">{row.file_name}</span> hasn't
+                        been committed, so nothing downstream depends on it. Deleting
+                        removes the upload and its stored file entirely — this can't
+                        be undone.
+                    </DialogDescription>
+                </DialogHeader>
+
+                {error && (
+                    <Alert variant="destructive">
+                        <XCircle className="size-4" />
+                        <AlertDescription>{error}</AlertDescription>
+                    </Alert>
+                )}
+
+                <DialogFooter>
+                    <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
+                        Cancel
+                    </Button>
+                    <Button
+                        variant="destructive"
+                        onClick={handleDelete}
+                        disabled={busy}
+                        className="gap-2"
+                    >
+                        {busy && <Loader2 className="size-4 animate-spin" />}
+                        {busy ? "Deleting…" : "Delete"}
                     </Button>
                 </DialogFooter>
             </DialogContent>
@@ -624,8 +739,18 @@ export default function Imports() {
                                                         minute: "2-digit",
                                                     })}
                                                 </TableCell>
-                                                <TableCell>
-                                                    <ChevronRight className="size-4 text-muted-foreground" />
+                                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                                    <div className="flex items-center justify-end gap-1">
+                                                        {canDeleteImport(row.status) && (
+                                                            <DeleteDialog
+                                                                row={row}
+                                                                onDeleted={(id) =>
+                                                                    setRows((prev) => prev.filter((r) => r.id !== id))
+                                                                }
+                                                            />
+                                                        )}
+                                                        <ChevronRight className="size-4 text-muted-foreground" />
+                                                    </div>
                                                 </TableCell>
                                             </TableRow>
                                         );

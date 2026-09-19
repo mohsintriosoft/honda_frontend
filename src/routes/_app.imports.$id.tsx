@@ -11,7 +11,6 @@ import {
   Building2,
   CalendarDays,
   FileSpreadsheet,
-  ArrowRight,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/AppShell";
@@ -33,13 +32,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Table,
   TableBody,
   TableCell,
@@ -60,9 +52,7 @@ import {
   post_import_revert,
   get_import_errors,
   get_import_unmatched,
-  post_import_assign_segment,
   get_import_rows,
-  get_segments,
   server_get_data,
   server_post_data,
 } from "@/components/ServiceConnection/serviceconnection";
@@ -149,11 +139,6 @@ interface CsvDetailsRow {
   crm_call_status: string;
   customer_id: number | null;
   vehicle_id: number | null;
-}
-
-interface Segment {
-  id: number;
-  name: string;
 }
 
 const LIST_TYPE_LABEL: Record<ListType, string> = {
@@ -367,44 +352,10 @@ function RevertDialog({
    UNMATCHED ROW — manual segment assignment
 ========================================================= */
 
-function UnmatchedRow({
-  row,
-  segments,
-  importId,
-  onAssigned,
-  previewOnly,
-}: {
-  row: CsvDetailsRow;
-  segments: Segment[];
-  importId: number;
-  onAssigned: (rowId: number) => void;
-  previewOnly?: boolean;
-}) {
-  const [segmentId, setSegmentId] = useState<string>("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleAssign = async () => {
-    if (!segmentId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await server_post_data(post_import_assign_segment(importId), {
-        row_id: row.id,
-        segment_id: segmentId,
-      });
-      if (!res?.success) throw new Error(res?.error || "Assignment failed");
-      onAssigned(row.id);
-    } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || "Assignment failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
+function UnmatchedRow({ row }: { row: CsvDetailsRow }) {
   return (
     <TableRow>
-      <TableCell className="tabular-nums text-muted-foreground">{row.row_number}</TableCell>
+      <TableCell className="tabular-nums font-semibold text-destructive">#{row.row_number + 1}</TableCell>
       <TableCell>{row.phone_raw || "—"}</TableCell>
       <TableCell className="font-mono text-xs">{row.frame_no || "—"}</TableCell>
       <TableCell>
@@ -415,30 +366,8 @@ function UnmatchedRow({
       <TableCell className="max-w-xs text-sm text-muted-foreground">
         {row.error || "Unknown reason — check server logs"}
       </TableCell>
-      <TableCell>
-        {previewOnly ? (
-          <span className="text-xs text-muted-foreground">Commit the import to assign manually</span>
-        ) : (
-          <div className="flex items-center gap-2">
-            <Select value={segmentId} onValueChange={setSegmentId}>
-              <SelectTrigger className="h-8 w-40">
-                <SelectValue placeholder="Assign segment" />
-              </SelectTrigger>
-              <SelectContent>
-                {segments.map((s) => (
-                  <SelectItem key={s.id} value={String(s.id)}>
-                    {s.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Button size="sm" variant="secondary" disabled={!segmentId || busy} onClick={handleAssign} className="gap-1">
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <ArrowRight className="size-3.5" />}
-              Assign
-            </Button>
-          </div>
-        )}
-        {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      <TableCell className="text-sm text-destructive font-medium whitespace-nowrap">
+        Row number {row.row_number + 1} of the excel is unmatched
       </TableCell>
     </TableRow>
   );
@@ -459,7 +388,6 @@ export default function ImportDetails() {
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const [segments, setSegments] = useState<Segment[]>([]);
   const [unmatchedRows, setUnmatchedRows] = useState<CsvDetailsRow[] | null>(null);
   const [unmatchedCursor, setUnmatchedCursor] = useState<number | null>(null);
   const [unmatchedHasMore, setUnmatchedHasMore] = useState(false);
@@ -530,12 +458,6 @@ export default function ImportDetails() {
       })
       .catch(() => setPreview(null));
   }, [row?.status, importId]);
-
-  useEffect(() => {
-    server_get_data(get_segments)
-      .then((res) => setSegments(res?.segments ?? res?.results ?? (Array.isArray(res) ? res : [])))
-      .catch(() => setSegments([]));
-  }, []);
 
   // Both loaders page with a row-number cursor (?after_row=) instead of
   // fetching everything at once -- see _scan_dry_run_rows()/
@@ -630,11 +552,6 @@ export default function ImportDetails() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row?.status, activeTab, unmatchedRows, errorRows, rawRows]);
 
-  const handleAssigned = (rowId: number) => {
-    setUnmatchedRows((prev) => (prev ? prev.filter((r) => r.id !== rowId) : prev));
-    fetchDetail(true);
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-[60vh] gap-2 text-muted-foreground">
@@ -663,7 +580,17 @@ export default function ImportDetails() {
   // (previous run's process/thread died -- see commit_stalled) are
   // actionable; anything else in between shows a plain "Committing…"
   // indicator instead.
-  const canCommit = row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled);
+  // Block committing while ANY row is unmatched -- row.unmatched_count is
+  // only populated after a real commit, so before that we fall back to
+  // the preview-only unmatched scan (unmatchedRows). Either source
+  // finding at least one row is enough to refuse the commit outright;
+  // the admin must fix or manually route every unmatched row first.
+  const hasUnmatchedRows =
+    row.unmatched_count > 0 || (unmatchedRows !== null && unmatchedRows.length > 0);
+
+  const canCommit =
+    (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) &&
+    !hasUnmatchedRows;
   const isLiveCommitting = row.status === "processing" && !row.commit_stalled;
   const canRevert = row.status === "done";
 
@@ -702,6 +629,14 @@ export default function ImportDetails() {
             {canCommit && (
               <CommitDialog row={row} onCommitted={setRow} resuming={row.status === "processing"} />
             )}
+            {!canCommit &&
+              hasUnmatchedRows &&
+              (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) && (
+                <Badge variant="secondary" className="gap-1 font-medium bg-destructive/15 text-destructive">
+                  <XCircle className="size-3" />
+                  Import blocked — unmatched rows
+                </Badge>
+              )}
             {canRevert && <RevertDialog row={row} onReverted={setRow} />}
           </div>
         }
@@ -751,6 +686,23 @@ export default function ImportDetails() {
             <AlertDescription>
               total_rows should equal segment_data_created + unmatched + skipped + failed. Some
               rows may be unaccounted for — worth a look before trusting this batch.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {hasUnmatchedRows && (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) && (
+          <Alert variant="destructive">
+            <XCircle className="size-4" />
+            <AlertTitle>Unmatched rows found — this data cannot be imported</AlertTitle>
+            <AlertDescription className="text-xs space-y-1">
+              <p>
+                {row.unmatched_count > 0
+                  ? `${row.unmatched_count.toLocaleString()} row${row.unmatched_count !== 1 ? "s" : ""}`
+                  : `${unmatchedRows!.length.toLocaleString()}${unmatchedHasMore ? "+" : ""} row${unmatchedRows!.length !== 1 ? "s" : ""}`}{" "}
+                in this file could not be matched to a segment. The data cannot be imported until
+                every row is matched correctly — fix the file and re-upload. See the "Unmatched"
+                tab below for the exact rows.
+              </p>
             </AlertDescription>
           </Alert>
         )}
@@ -930,8 +882,7 @@ export default function ImportDetails() {
                 <CardDescription>
                   Each row landed here for its own reason — see "Why unmatched" below. It isn't
                   always a bad value: a segment can match and still have no linked campaign, or
-                  the vehicle can be missing a due date. Route a row manually if you know what it
-                  means — e.g. "SERVICE" really meant PAID.
+                  the vehicle can be missing a due date.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -940,7 +891,7 @@ export default function ImportDetails() {
                     <AlertTriangle className="size-4" />
                     <AlertDescription className="text-xs">
                       Nothing has been committed yet — these are the rows that would land in
-                      Unmatched if you commit right now. Manual assignment unlocks after commit.
+                      Unmatched if you commit right now.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -957,24 +908,17 @@ export default function ImportDetails() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-16">Row</TableHead>
+                          <TableHead className="w-20">Excel Row</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Frame no.</TableHead>
                           <TableHead>Next Service Type (raw)</TableHead>
                           <TableHead>Why unmatched</TableHead>
-                          <TableHead>Assign to segment</TableHead>
+                          <TableHead>Status</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {unmatchedRows.map((r) => (
-                          <UnmatchedRow
-                            key={r.id}
-                            row={r}
-                            segments={segments}
-                            importId={importId}
-                            onAssigned={handleAssigned}
-                            previewOnly={unmatchedPreviewOnly}
-                          />
+                          <UnmatchedRow key={r.id} row={r} />
                         ))}
                       </TableBody>
                     </Table>

@@ -157,6 +157,10 @@ const get_import_detail = (id) => `${APL_LINK}api/imports/${id}/`;
 const get_import_preview = (id) => `${APL_LINK}api/imports/${id}/preview/`;
 const post_import_commit = (id) => `${APL_LINK}api/imports/${id}/commit/`;
 const post_import_revert = (id) => `${APL_LINK}api/imports/${id}/revert/`;
+// Only valid for an import that hasn't been committed yet (status !==
+// 'done'/'processing' -- see import_delete() in views_import.py). A
+// committed import must go through post_import_revert instead.
+const post_import_delete = (id) => `${APL_LINK}api/imports/${id}/delete/`;
 const get_import_errors = (id) => `${APL_LINK}api/imports/${id}/errors/`;
 const get_import_unmatched = (id) => `${APL_LINK}api/imports/${id}/unmatched/`;
 const post_import_assign_segment = (id) => `${APL_LINK}api/imports/${id}/assign-segment/`;
@@ -889,6 +893,7 @@ export {
   get_import_preview,
   post_import_commit,
   post_import_revert,
+  post_import_delete,
   get_import_errors,
   get_import_unmatched,
   post_import_assign_segment,
