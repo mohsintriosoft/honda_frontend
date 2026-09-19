@@ -5,6 +5,13 @@ import { PageHeader } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
+import {
     get_callbacks,
     patch_callback,
     server_get_data,
@@ -29,8 +36,21 @@ type CallbackRow = {
     createdAt: string | null;
 };
 
-const STATUS_FILTERS = ["all", "pending", "completed", "cancelled"] as const;
-const TYPE_FILTERS = ["all", "customer", "team"] as const;
+const STATUS_FILTERS = [
+    { value: "all", label: "All statuses" },
+    { value: "pending", label: "Pending" },
+    { value: "completed", label: "Completed" },
+    { value: "cancelled", label: "Cancelled" },
+] as const;
+
+const TYPE_FILTERS = [
+    { value: "all", label: "All types" },
+    { value: "customer", label: "Arohi callback" },
+    { value: "team", label: "Team callback" },
+] as const;
+
+type StatusFilter = (typeof STATUS_FILTERS)[number]["value"];
+type TypeFilter = (typeof TYPE_FILTERS)[number]["value"];
 
 function formatDate(value: string | null) {
     if (!value) return "—";
@@ -86,8 +106,8 @@ export default function Callbacks() {
     const [rows, setRows] = useState<CallbackRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
-    const [typeFilter, setTypeFilter] = useState<(typeof TYPE_FILTERS)[number]>("all");
+    const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+    const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
     const [updatingId, setUpdatingId] = useState<number | null>(null);
 
     const fetchCallbacks = useCallback(async () => {
@@ -114,9 +134,12 @@ export default function Callbacks() {
 
     const updateStatus = async (row: CallbackRow, status: "completed" | "cancelled") => {
         setUpdatingId(row.id);
+        const handledAt = new Date().toISOString();
         try {
-            await server_patch_data(patch_callback(row.id), { status });
-            setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, status } : r)));
+            await server_patch_data(patch_callback(row.id), { status, handledAt });
+            setRows((prev) =>
+                prev.map((r) => (r.id === row.id ? { ...r, status, handledAt } : r))
+            );
         } catch (err) {
             console.error(err);
             setError("Couldn't update that callback. Try again.");
@@ -143,39 +166,31 @@ export default function Callbacks() {
 
             <div className="px-4 md:px-6 lg:px-8 pt-5">
                 <div className="flex flex-wrap items-center gap-2 mb-4">
-                    <div className="flex items-center rounded-md border bg-muted/30 p-0.5 text-sm">
-                        {STATUS_FILTERS.map((s) => (
-                            <button
-                                key={s}
-                                onClick={() => setStatusFilter(s)}
-                                className={
-                                    "px-3 py-1.5 rounded-[5px] capitalize transition-colors " +
-                                    (statusFilter === s
-                                        ? "bg-background shadow-sm font-medium"
-                                        : "text-muted-foreground hover:text-foreground")
-                                }
-                            >
-                                {s === "all" ? "All statuses" : s}
-                            </button>
-                        ))}
-                    </div>
+                    <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v as StatusFilter)}>
+                        <SelectTrigger className="w-[160px]" aria-label="Filter by status">
+                            <SelectValue placeholder="All statuses" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {STATUS_FILTERS.map((s) => (
+                                <SelectItem key={s.value} value={s.value}>
+                                    {s.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
 
-                    <div className="flex items-center rounded-md border bg-muted/30 p-0.5 text-sm">
-                        {TYPE_FILTERS.map((t) => (
-                            <button
-                                key={t}
-                                onClick={() => setTypeFilter(t)}
-                                className={
-                                    "px-3 py-1.5 rounded-[5px] capitalize transition-colors " +
-                                    (typeFilter === t
-                                        ? "bg-background shadow-sm font-medium"
-                                        : "text-muted-foreground hover:text-foreground")
-                                }
-                            >
-                                {t === "all" ? "All types" : t === "customer" ? "Arohi callback" : "Team callback"}
-                            </button>
-                        ))}
-                    </div>
+                    <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as TypeFilter)}>
+                        <SelectTrigger className="w-[170px]" aria-label="Filter by type">
+                            <SelectValue placeholder="All types" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {TYPE_FILTERS.map((t) => (
+                                <SelectItem key={t.value} value={t.value}>
+                                    {t.label}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
 
                     <div className="ml-auto text-sm text-muted-foreground">
                         {loading ? "Loading…" : `${rows.length} shown • ${pendingCount} pending`}

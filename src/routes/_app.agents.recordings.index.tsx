@@ -99,48 +99,61 @@ import {
   ChevronRight,
 } from "lucide-react";
 
-const MODULES: AgentWorkflow[] = ["sales", "service", "insurance", "amc", "winback", "feedback"];
+const MODULES: AgentWorkflow[] = ["service", "insurance", "amc"];
 
 // How many rows we pull from the backend per request. Keep this small —
 // this is what actually protects the DB. Raising this back up to 200
 // (like the old page_size did) defeats the point of paginating at all.
 const PAGE_SIZE = 25;
 
-// Real CallSession.status values (see models.py STATUS_CHOICES) — this is a
-// different enum from Recording["status"] above, which was built for the
-// mock ingest/training pipeline (queued/transcribing/mined/…). The table's
-// Status column now shows THIS, since it's what the backend actually sends.
+// CallSession.status is limited to these five values. Ringing and Ongoing are
+// live-call states -- there's no recording yet, so the recordings API never
+// returns them here (see RECORDING_VISIBLE_STATUSES in views_admin.py) -- but
+// they stay in the maps so the badge still renders if a live row ever appears.
+// The table's Status column shows THIS (the real backend value), not the mock
+// Recording["status"] pipeline enum.
 const CALL_STATUS_LABEL: Record<string, string> = {
-  initiated: "Initiated",
   ringing: "Ringing",
   ongoing: "Ongoing",
   completed: "Completed",
-  failed: "Failed",
-  busy: "Busy",
-  no_answer: "No Answer",
-  cancelled: "Cancelled",
   dropped: "Dropped",
+  declined: "Declined",
 };
 
 const CALL_STATUS_TONE: Record<string, string> = {
-  initiated: "bg-secondary text-muted-foreground",
   ringing: "bg-[color:var(--ai)]/12 text-[color:var(--ai)]",
   ongoing: "bg-[color:var(--ai)]/12 text-[color:var(--ai)]",
   completed: "bg-[color:var(--success)]/12 text-[color:var(--success)]",
-  failed: "bg-destructive/10 text-destructive",
-  busy: "bg-[color:var(--warning)]/12 text-[color:var(--warning)]",
-  no_answer: "bg-[color:var(--warning)]/12 text-[color:var(--warning)]",
-  cancelled: "bg-destructive/10 text-destructive",
   dropped: "bg-destructive/10 text-destructive",
+  declined: "bg-[color:var(--warning)]/12 text-[color:var(--warning)]",
 };
 
 function callStatusLabel(status: string): string {
+  if (!status) {
+    return "—";
+  }
   return CALL_STATUS_LABEL[status] ?? status.replace(/_/g, " ");
 }
 
 function callStatusTone(status: string): string {
   return CALL_STATUS_TONE[status] ?? "bg-secondary text-muted-foreground";
 }
+
+// Outcomes offered in the filter dropdown, in priority order:
+// Booked > Callback > Not interested > No answer. The order here IS the
+// priority (highest first), and it's the order the dropdown renders in.
+// "Complaint" was removed from the list.
+// `value` is what's stored in CallSession.final_intent_code (the
+// SegmentIntent.intent_code of the outcome intent). "Not interested" is the
+// "declined" outcome intent -- there is no "not_interested" code in the
+// backend. "no_answer" must exist as an outcome SegmentIntent for the
+// segment, otherwise that filter will always return zero rows.
+const OUTCOME_OPTIONS = [
+  { value: "booked", label: "Booked" },
+  { value: "callback", label: "Callback" },
+  { value: "declined", label: "Not interested" },
+  { value: "no_answer", label: "No answer" },
+] as const;
 
 // Buckets the real call status into the mock training-pipeline enum, purely
 // so existing filter/tone logic elsewhere that's typed against
@@ -152,7 +165,6 @@ function mapCallStatusToRecordingStatus(status: string): Recording["status"] {
       return "reviewed";
     case "ringing":
     case "ongoing":
-    case "initiated":
       return "transcribing";
     default:
       return "failed";
@@ -185,7 +197,14 @@ function outcomeLabel(code: string): string {
   if (!code) {
     return "Not classified";
   }
-  return (OUTCOME_LABEL as Record<string, string>)[code] ?? code.replace(/_/g, " ");
+  // Prefer the dropdown's labels; fall back to the legacy mock labels so
+  // older rows with a code that's no longer offered (e.g. "complaint")
+  // still show a readable name in the table.
+  return (
+    OUTCOME_OPTIONS.find((o) => o.value === code)?.label ??
+    (OUTCOME_LABEL as Record<string, string>)[code] ??
+    code.replace(/_/g, " ")
+  );
 }
 
 function getFileName(path: string): string {
@@ -205,6 +224,10 @@ type RecordingRow = Recording & {
   callStatus: string;
   llmCost: number | null;
   timeIst: string | null;
+  // true when the backend actually sent a quality score (including a real 0).
+  // Lets the table show "0%" for a scored-zero call and "—" only when there
+  // is no score at all.
+  qualityKnown?: boolean;
 };
 
 function joinUrl(...parts: string[]): string {
@@ -278,16 +301,19 @@ function mapRecordingApiToRecording(session: any): RecordingRow {
   // fall back to raw `accuracy` (handling both 0-1 fractions and already-
   // percentage values) for older API responses that predate that field.
   let quality = 0;
+  let qualityKnown = false;
   if (typeof session.quality_pct === "number") {
     quality = session.quality_pct;
+    qualityKnown = true;
   } else if (typeof session.accuracy === "number") {
     quality = Math.round(session.accuracy <= 1 ? session.accuracy * 100 : session.accuracy);
+    qualityKnown = true;
   }
 
   const llmCost: number | null =
     typeof session.total_cost === "number" ? session.total_cost : null;
 
-  const callStatus: string = session.status || "initiated";
+  const callStatus: string = session.status || "";
 
   // Prefer the IST fields the backend now sends; fall back to converting
   // the raw UTC timestamp client-side for any endpoint that hasn't picked
@@ -329,6 +355,7 @@ function mapRecordingApiToRecording(session: any): RecordingRow {
     durationSec: session.duration_seconds ?? 0,
     outcome: (session.final_intent_code || "") as Recording["outcome"],
     quality,
+    qualityKnown,
     status: mapCallStatusToRecordingStatus(callStatus),
     callStatus,
     llmCost,
@@ -929,8 +956,8 @@ export default function RecordingsPage() {
       <PageHeader
         breadcrumbs={[
           {
-            label: "AI Agents",
-            to: "/agents",
+            label: "Dashboard",
+            to: "/dashboard",
           },
           {
             label: "Call recordings",
@@ -940,12 +967,12 @@ export default function RecordingsPage() {
         description="Bring in your existing call archive, auto-transcribe it, and mine real conversations for intents, objections and answers."
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" asChild>
+            {/* <Button variant="outline" size="sm" asChild>
               <Link to="/agents">
                 <ArrowLeft className="size-4" />
                 Agents
               </Link>
-            </Button>
+            </Button> */}
 
           </div>
         }
@@ -1032,7 +1059,7 @@ export default function RecordingsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-
+                {/* 
                 <Select value={classFilter} onValueChange={setClassFilter}>
                   <SelectTrigger className="h-9 w-44">
                     <SelectValue />
@@ -1045,7 +1072,7 @@ export default function RecordingsPage() {
 
                     <SelectItem value="review">Needs module review</SelectItem>
                   </SelectContent>
-                </Select>
+                </Select> */}
 
                 <Select value={outcomeFilter} onValueChange={setOutcomeFilter}>
                   <SelectTrigger className="h-9 w-40">
@@ -1055,9 +1082,9 @@ export default function RecordingsPage() {
                   <SelectContent>
                     <SelectItem value="all">All outcomes</SelectItem>
 
-                    {Object.entries(OUTCOME_LABEL).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>
-                        {v}
+                    {OUTCOME_OPTIONS.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>
+                        {o.label}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1129,7 +1156,7 @@ export default function RecordingsPage() {
                       </TableCell>
 
                       <TableCell className="tabular-nums text-muted-foreground">
-                        {r.quality ? `${r.quality}%` : "—"}
+                        {r.qualityKnown || r.quality ? `${r.quality}%` : "—"}
                       </TableCell>
 
                       <TableCell>

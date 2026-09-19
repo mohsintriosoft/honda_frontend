@@ -84,8 +84,8 @@ interface AppointmentRow {
   phoneNumber: string | null;
   vehicle: string | null;
   type: string;
-  advisor: string | null;
-  bay: string;
+  // advisor: string | null;
+  // bay: string;
   slotDate: string;
   slotTime: string;
   source: string;
@@ -213,6 +213,27 @@ function apptChipClass(a: AppointmentRow, textClass = "text-[11px]", paddingClas
   return `rounded ${paddingClass} ${textClass} leading-tight border w-full text-left truncate ${apptStatusClasses(a)}`;
 }
 
+// Raw source values come straight off the DB ("ai_call", "walk_in", "manual",
+// "web", …) — humanize them for display instead of showing snake_case.
+const SOURCE_LABELS: Record<string, string> = {
+  ai_call: "AI Call",
+  ivr: "IVR",
+  walk_in: "Walk-in",
+  web: "Website",
+  manual: "Manual",
+  auto: "Automated",
+};
+
+function formatSource(source: string | null | undefined) {
+  if (!source) return "—";
+  if (SOURCE_LABELS[source]) return SOURCE_LABELS[source];
+  return source
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+}
+
 // Manual holds have no real customer attached — "Manual Slot - <Branch>"
 // reads better in the grid/list than a bare dash. includeBranch=false
 // when the branch is already shown in its own column alongside this.
@@ -331,8 +352,11 @@ export default function AppointmentsPage() {
     server_get_data(get_branches, { dealer_id: 1, detail: 1 })
       .then((res) => {
         const list: BranchOption[] = res?.branches ?? [];
+
         setBranches(list);
-        if (list.length > 0) setBranchId((cur) => cur ?? list[0].id);
+
+        // Default to "All branches"
+        setBranchId((cur) => cur ?? GLOBAL_VALUE);
       })
       .catch(() => setError("Couldn't load branches."));
   }, []);
@@ -730,9 +754,9 @@ export default function AppointmentsPage() {
                 >
                   <ChevronLeft className="size-4" />
                 </Button>
-                <Button variant="outline" size="sm" onClick={() => setStart(todayIso())}>
+                {/* <Button variant="outline" size="sm" onClick={() => setStart(todayIso())}>
                   Today
-                </Button>
+                </Button> */}
                 <Button
                   variant="outline"
                   size="icon"
@@ -749,7 +773,13 @@ export default function AppointmentsPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Tabs value={rangeKey} onValueChange={(v) => setRangeKey(v as RangeKey)}>
+            <Tabs
+              value={rangeKey}
+              onValueChange={(v) => {
+                setRangeKey(v as RangeKey);
+                setStart(todayIso());
+              }}
+            >
               <TabsList>
                 {(Object.keys(RANGE_DAYS) as RangeKey[]).map((key) => (
                   <TabsTrigger key={key} value={key}>
@@ -931,8 +961,8 @@ export default function AppointmentsPage() {
                       {isGlobal && <TableHead>Branch</TableHead>}
                       <TableHead>Vehicle</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Advisor</TableHead>
-                      <TableHead>Bay</TableHead>
+                      {/* <TableHead>Advisor</TableHead>
+                      <TableHead>Bay</TableHead> */}
                       <TableHead>When</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Status</TableHead>
@@ -949,13 +979,13 @@ export default function AppointmentsPage() {
                         )}
                         <TableCell className="text-xs">{appointment.vehicle ?? "—"}</TableCell>
                         <TableCell className="text-sm">{appointment.isManualHold ? "—" : appointment.type}</TableCell>
-                        <TableCell className="text-sm">{appointment.advisor ?? "—"}</TableCell>
-                        <TableCell className="text-xs">{appointment.bay || "—"}</TableCell>
+                        {/* <TableCell className="text-sm">{appointment.advisor ?? "—"}</TableCell>
+                        <TableCell className="text-xs">{appointment.bay || "—"}</TableCell> */}
                         <TableCell className="text-xs">
                           {formatDateTime(`${appointment.slotDate}T${appointment.slotTime}:00`)}
                         </TableCell>
                         <TableCell className="text-xs">
-                          {appointment.isManualHold ? "Manual" : appointment.source}
+                          {appointment.isManualHold ? "Manual" : formatSource(appointment.source)}
                         </TableCell>
                         <TableCell>
                           <StatusBadge status={toBadgeStatus(appointment.status) as any} />

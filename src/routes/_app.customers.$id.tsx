@@ -90,20 +90,6 @@ interface ApiCustomerDetail {
   serviceRecords: ApiServiceRecord[];
 }
 
-/* -------------------------------------------------------------------------- */
-/* Lifecycle stages                                                           */
-/* -------------------------------------------------------------------------- */
-
-const STAGES = [
-  "enquiry",
-  "qualified",
-  "purchased",
-  "free_service",
-  "paid_service",
-  "insurance_due",
-  "amc_due",
-  "loyal",
-] as const;
 
 /* -------------------------------------------------------------------------- */
 /* Page                                                                       */
@@ -150,7 +136,7 @@ export default function CustomerDetailPage() {
   }
 
   const c = customer;
-  const stageIdx = Math.max(0, STAGES.indexOf(c.lifecycleStage as (typeof STAGES)[number]));
+  // const stageIdx = Math.max(0, STAGES.indexOf(c.lifecycleStage as (typeof STAGES)[number]));
 
   // Merge calls / appointments / service records into one chronological
   // timeline instead of the previous hardcoded demo entries — every item
@@ -223,10 +209,10 @@ export default function CustomerDetailPage() {
               WhatsApp
             </Button>
 
-            <Button size="sm">
+            {/* <Button size="sm">
               <Sparkles className="size-4" />
               Add to campaign
-            </Button>
+            </Button> */}
           </>
         }
       />
@@ -264,7 +250,7 @@ export default function CustomerDetailPage() {
               <div className="mt-5 space-y-2.5 text-sm">
                 <Row icon={<Phone className="size-3.5" />} label="Phone" value={c.phone} />
 
-                <Row icon={<Mail className="size-3.5" />} label="Email" value={c.email || "—"} />
+                {/* <Row icon={<Mail className="size-3.5" />} label="Email" value={c.email || "—"} /> */}
 
                 {c.vehicle ? (
                   <>
@@ -287,10 +273,10 @@ export default function CustomerDetailPage() {
                   <Row icon={<Car className="size-3.5" />} label="Vehicle" value="No vehicle on file" />
                 )}
 
-                <Row
+                {/* <Row
                   label="Total spend"
                   value={<span className="font-semibold">{formatCurrency(c.totalSpend)}</span>}
-                />
+                /> */}
               </div>
             </CardContent>
           </Card>
@@ -333,7 +319,7 @@ export default function CustomerDetailPage() {
         <div className="space-y-4 min-w-0">
           {/* Lifecycle */}
 
-          <Card>
+          {/* <Card>
             <CardContent className="py-4">
               <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-3">
                 Lifecycle stage
@@ -358,7 +344,7 @@ export default function CustomerDetailPage() {
                 ))}
               </div>
             </CardContent>
-          </Card>
+          </Card> */}
 
           {/* Tabs */}
 
@@ -374,7 +360,7 @@ export default function CustomerDetailPage() {
 
               <TabsTrigger value="service">Service History</TabsTrigger>
 
-              <TabsTrigger value="notes">Notes</TabsTrigger>
+              {/* <TabsTrigger value="notes">Notes</TabsTrigger> */}
             </TabsList>
 
             {/* ============================================================= */}
@@ -527,7 +513,7 @@ export default function CustomerDetailPage() {
             {/* Notes                                                            */}
             {/* ============================================================= */}
 
-            <TabsContent value="notes" className="mt-4">
+            {/* <TabsContent value="notes" className="mt-4">
               <Card>
                 <CardContent className="pt-6">
                   <Button size="sm" variant="outline">
@@ -538,7 +524,7 @@ export default function CustomerDetailPage() {
                   <p className="mt-3 text-sm text-muted-foreground">No notes yet.</p>
                 </CardContent>
               </Card>
-            </TabsContent>
+            </TabsContent> */}
           </Tabs>
         </div>
       </div>

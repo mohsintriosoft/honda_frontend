@@ -181,7 +181,7 @@ export default function SegmentDetailPage() {
             edited on the segment itself (not here); the call window is
             edited on the campaign (Campaigns page), so both are shown as
             plain text rather than form fields. */}
-        <Card>
+        {/* <Card>
           <CardHeader>
             <CardTitle className="text-base font-display">Conversation & call window</CardTitle>
           </CardHeader>
@@ -208,7 +208,7 @@ export default function SegmentDetailPage() {
               </p>
             </div>
           </CardContent>
-        </Card>
+        </Card> */}
 
         {/* Customers */}
         <Card>

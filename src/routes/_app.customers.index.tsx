@@ -17,7 +17,6 @@ import { StatusBadge } from "@/components/data/StatusBadge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { initials, formatCurrency, formatRelative } from "@/lib/format";
 import { Filter, Search, Download, Sparkles, Plus, Loader2 } from "lucide-react";
-import { Checkbox } from "@/components/ui/checkbox";
 
 import { get_customers, server_get_data } from "@/components/ServiceConnection/serviceconnection";
 
@@ -42,7 +41,6 @@ const PAGE_SIZE = 30;
 
 export default function CustomersPage() {
   const [q, setQ] = useState("");
-  const [selected, setSelected] = useState<number[]>([]);
 
   const [customers, setCustomers] = useState<ApiCustomer[]>([]);
   const [total, setTotal] = useState(0);
@@ -89,9 +87,6 @@ export default function CustomersPage() {
       cancelled = true;
     };
   }, [page, debouncedQ]);
-
-  const toggle = (id: number) =>
-    setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -155,27 +150,6 @@ export default function CustomersPage() {
           </CardHeader>
 
           <CardContent className="p-0">
-            {/* Bulk actions */}
-            {selected.length > 0 && (
-              <div className="flex items-center justify-between bg-primary/10 border-y px-4 py-2 text-sm">
-                <span className="font-medium">{selected.length} selected</span>
-
-                <div className="flex gap-2">
-                  <Button size="sm" variant="ghost">
-                    Add to campaign
-                  </Button>
-
-                  <Button size="sm" variant="ghost">
-                    Tag
-                  </Button>
-
-                  <Button size="sm" variant="ghost">
-                    Export
-                  </Button>
-                </div>
-              </div>
-            )}
-
             {error && (
               <div className="px-4 py-3 text-sm text-destructive border-b">{error}</div>
             )}
@@ -196,7 +170,6 @@ export default function CustomersPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-8" />
                       <TableHead>Customer</TableHead>
                       <TableHead>Vehicle</TableHead>
                       <TableHead>Lifecycle</TableHead>
@@ -209,13 +182,6 @@ export default function CustomersPage() {
                   <TableBody>
                     {customers.map((c) => (
                       <TableRow key={c.id} className="cursor-pointer">
-                        <TableCell>
-                          <Checkbox
-                            checked={selected.includes(c.id)}
-                            onCheckedChange={() => toggle(c.id)}
-                          />
-                        </TableCell>
-
                         <TableCell>
                           <Link to={`/customers/${c.id}`} className="flex items-center gap-2.5 group">
                             <Avatar className="size-8">

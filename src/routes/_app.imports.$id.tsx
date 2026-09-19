@@ -139,6 +139,9 @@ interface CsvDetailsRow {
   crm_call_status: string;
   customer_id: number | null;
   vehicle_id: number | null;
+  // Every column exactly as it appeared in the uploaded Excel/CSV, keyed
+  // by original header -- see RawRowDialog below.
+  raw: Record<string, unknown>;
 }
 
 const LIST_TYPE_LABEL: Record<ListType, string> = {
@@ -201,10 +204,14 @@ function CommitDialog({
   row,
   onCommitted,
   resuming = false,
+  hasUnmatchedRows,
+  onBlocked,
 }: {
   row: CsvStatsRow;
   onCommitted: (row: CsvStatsRow) => void;
   resuming?: boolean;
+  hasUnmatchedRows: boolean;
+  onBlocked: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -227,7 +234,21 @@ function CommitDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <Button className="gap-2" onClick={() => setOpen(true)} variant={resuming ? "outline" : "default"}>
+      <Button
+        className="gap-2"
+        onClick={() => {
+          // Same preview-only scan that feeds the Unmatched tab -- checked
+          // now, at the moment of the click, rather than the instant that
+          // scan finishes loading, so the page doesn't look broken before
+          // anyone has even tried to commit. See commitBlocked below.
+          if (hasUnmatchedRows) {
+            onBlocked();
+            return;
+          }
+          setOpen(true);
+        }}
+        variant={resuming ? "outline" : "default"}
+      >
         <PlayCircle className="size-4" />
         {resuming ? "Resume commit" : "Confirm import"}
       </Button>
@@ -374,6 +395,49 @@ function UnmatchedRow({ row }: { row: CsvDetailsRow }) {
 }
 
 /* =========================================================
+   RAW ROW DIALOG — every column exactly as it appeared in the
+   uploaded file, for a single row (see CsvDetails.raw).
+========================================================= */
+
+function RawRowDialog({
+  row,
+  onOpenChange,
+}: {
+  row: CsvDetailsRow;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const entries = Object.entries(row.raw ?? {});
+  return (
+    <Dialog open onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Excel row #{row.row_number}</DialogTitle>
+          <DialogDescription>Every column exactly as it appeared in the uploaded file.</DialogDescription>
+        </DialogHeader>
+        <div className="max-h-[60vh] overflow-y-auto rounded-md border">
+          {entries.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">No raw data stored for this row.</div>
+          ) : (
+            <Table>
+              <TableBody>
+                {entries.map(([col, val]) => (
+                  <TableRow key={col}>
+                    <TableCell className="w-1/3 align-top font-medium text-muted-foreground">{col}</TableCell>
+                    <TableCell className="whitespace-pre-wrap break-words">
+                      {val === null || val === undefined || val === "" ? "—" : String(val)}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* =========================================================
    PAGE
 ========================================================= */
 
@@ -402,6 +466,16 @@ export default function ImportDetails() {
 
   const [rawRows, setRawRows] = useState<CsvDetailsRow[] | null>(null);
   const [rawPage, setRawPage] = useState(1);
+  const [selectedRawRow, setSelectedRawRow] = useState<CsvDetailsRow | null>(null);
+
+  // Whether an attempted commit has been refused for having unmatched
+  // rows. Deliberately NOT computed automatically from the preview scan
+  // -- it only flips true from CommitDialog's onBlocked, i.e. the moment
+  // "Confirm import"/"Resume commit" is actually clicked. Combined with
+  // hasUnmatchedRows below when rendering, so it stops showing on its
+  // own again if the unmatched rows disappear (a re-upload, a fixed
+  // segment/campaign, etc.) without needing to be reset explicitly.
+  const [commitBlocked, setCommitBlocked] = useState(false);
 
   // Which detail tab is showing. Kept as real state (not just Tabs'
   // uncontrolled defaultValue) because Radix's onValueChange only fires
@@ -580,17 +654,18 @@ export default function ImportDetails() {
   // (previous run's process/thread died -- see commit_stalled) are
   // actionable; anything else in between shows a plain "Committing…"
   // indicator instead.
-  // Block committing while ANY row is unmatched -- row.unmatched_count is
-  // only populated after a real commit, so before that we fall back to
-  // the preview-only unmatched scan (unmatchedRows). Either source
-  // finding at least one row is enough to refuse the commit outright;
-  // the admin must fix or manually route every unmatched row first.
+  // row.unmatched_count is only populated after a real commit; before
+  // that, hasUnmatchedRows falls back to the preview-only unmatched scan
+  // (unmatchedRows). Either source finding at least one row means the
+  // admin needs to fix or manually route it first -- but that's only
+  // enforced at the moment a commit is actually attempted (commitBlocked,
+  // set from CommitDialog's onBlocked), not the instant the scan
+  // finishes, so the page doesn't show a block before anyone has tried.
   const hasUnmatchedRows =
     row.unmatched_count > 0 || (unmatchedRows !== null && unmatchedRows.length > 0);
 
-  const canCommit =
-    (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) &&
-    !hasUnmatchedRows;
+  const canAttemptCommit =
+    row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled);
   const isLiveCommitting = row.status === "processing" && !row.commit_stalled;
   const canRevert = row.status === "done";
 
@@ -626,17 +701,24 @@ export default function ImportDetails() {
                 <Loader2 className="size-3 animate-spin" /> Committing…
               </Badge>
             )}
-            {canCommit && (
-              <CommitDialog row={row} onCommitted={setRow} resuming={row.status === "processing"} />
+            {canAttemptCommit && !(commitBlocked && hasUnmatchedRows) && (
+              <CommitDialog
+                row={row}
+                onCommitted={(r) => {
+                  setCommitBlocked(false);
+                  setRow(r);
+                }}
+                resuming={row.status === "processing"}
+                hasUnmatchedRows={hasUnmatchedRows}
+                onBlocked={() => setCommitBlocked(true)}
+              />
             )}
-            {!canCommit &&
-              hasUnmatchedRows &&
-              (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) && (
-                <Badge variant="secondary" className="gap-1 font-medium bg-destructive/15 text-destructive">
-                  <XCircle className="size-3" />
-                  Import blocked — unmatched rows
-                </Badge>
-              )}
+            {canAttemptCommit && commitBlocked && hasUnmatchedRows && (
+              <Badge variant="secondary" className="gap-1 font-medium bg-destructive/15 text-destructive">
+                <XCircle className="size-3" />
+                Import blocked — unmatched rows
+              </Badge>
+            )}
             {canRevert && <RevertDialog row={row} onReverted={setRow} />}
           </div>
         }
@@ -690,7 +772,7 @@ export default function ImportDetails() {
           </Alert>
         )}
 
-        {hasUnmatchedRows && (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) && (
+        {commitBlocked && hasUnmatchedRows && (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) && (
           <Alert variant="destructive">
             <XCircle className="size-4" />
             <AlertTitle>Unmatched rows found — this data cannot be imported</AlertTitle>
@@ -1038,7 +1120,11 @@ export default function ImportDetails() {
                       </TableHeader>
                       <TableBody>
                         {rawRows.map((r) => (
-                          <TableRow key={r.id}>
+                          <TableRow
+                            key={r.id}
+                            className="cursor-pointer"
+                            onClick={() => setSelectedRawRow(r)}
+                          >
                             <TableCell className="tabular-nums text-muted-foreground">{r.row_number}</TableCell>
                             <TableCell>{r.phone_raw || "—"}</TableCell>
                             <TableCell className="font-mono text-xs">{r.frame_no || "—"}</TableCell>
@@ -1054,6 +1140,14 @@ export default function ImportDetails() {
                         ))}
                       </TableBody>
                     </Table>
+                    {selectedRawRow && (
+                      <RawRowDialog
+                        row={selectedRawRow}
+                        onOpenChange={(open) => {
+                          if (!open) setSelectedRawRow(null);
+                        }}
+                      />
+                    )}
                     <div className="flex items-center justify-between px-4 py-3 border-t">
                       <Button
                         variant="ghost"

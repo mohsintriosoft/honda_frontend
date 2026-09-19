@@ -544,7 +544,7 @@ export default function CampaignDetailPage() {
             operational control in the same spirit as call_days/timing.
             Persona/voice/system prompt live on the Agent (also linked
             out). */}
-        <Card>
+        {/* <Card>
           <CardHeader>
             <CardTitle className="text-base font-display">Linked configuration</CardTitle>
           </CardHeader>
@@ -578,7 +578,7 @@ export default function CampaignDetailPage() {
               <span className="text-xs text-muted-foreground">Persona, voice &amp; prompt →</span>
             </Link>
           </CardContent>
-        </Card>
+        </Card> */}
 
         {/* Editable operational controls — every field docs §11.5 lists
             under Targeting.branch, Content.extra_prompt and "Operational

@@ -27,6 +27,17 @@ const login_user_email = APL_LINK + "api/login_user_email";
 const register_user_email = APL_LINK + "api/register_user_email";
 const logout_user_email = APL_LINK + "api/logout_user_email";
 
+// Dashboard — KPI cards + 14-day call trend (_app_dashboard.tsx). Every
+// other section on that page (live campaigns, live calls, upcoming
+// appointments, segment health) reuses the existing endpoints below
+// (get_campaigns, get_recordings, get_appointments, get_segments) instead
+// of duplicating them here.
+const get_dashboard_summary = APL_LINK + "api/dashboard/";
+
+// Reports & Analytics page (_app.analytics.index.tsx) — KPI strip, call
+// trend, disposition mix (real Intent taxonomy), advisor performance.
+const get_analytics_summary = APL_LINK + "api/analytics/";
+
 const get_segments = APL_LINK + "api/segments/";
 // 🔥 DYNAMIC CONVERSATION FLOW — opening_line/closing_line now live on
 // Segment, not LLMSetting (docs: segments can each say something different,
@@ -819,6 +830,8 @@ export {
   getStaffUser,
   clearAuthSession,
   isAuthenticated,
+  get_dashboard_summary,
+  get_analytics_summary,
   get_segments,
   get_segment_detail,
   patch_segment,
