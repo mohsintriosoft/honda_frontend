@@ -800,7 +800,7 @@ function AddCallCustomerDialog({
     null
   );
 
-  const [submitting, setSubmitting] = useState<"add" | "call" | null>(null);
+  const [submitting, setSubmitting] = useState<"call" | "quickcall" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -973,26 +973,35 @@ function AddCallCustomerDialog({
     return { ok: true as const, segment: res.segment as string | null };
   }
 
-  async function handleAdd() {
-    setSubmitting("add");
+  /* -------------------------------------------------------------------- */
+  /* Quick call — customer was already found via "Find", so just place    */
+  /* the call directly against that existing record. No save step needed */
+  /* since nothing about the customer changed.                            */
+  /* -------------------------------------------------------------------- */
+
+  async function handleQuickCall() {
+    if (!foundCustomer) return;
+
+    setSubmitting("quickcall");
+    setError(null);
     try {
-      const saved = await saveCustomer();
-      if (!saved) return;
+      const callRes = await server_post_json(post_plivo_call, {
+        customer_id: foundCustomer.id,
+        to: foundCustomer.phone_number,
+      });
 
-      const vehicleRes = await saveVehicleIfNeeded(saved.customer_id);
-
-      if (vehicleRes && !vehicleRes.ok) {
-        setSuccessMsg(`Saved ${saved.name || saved.phone_number}.`);
-        setError(`Vehicle not saved: ${vehicleRes.error}`);
-      } else {
-        setSuccessMsg(
-          `Saved ${saved.name || saved.phone_number}${vehicleRes?.ok && vehicleRes.segment ? ` · segment: ${vehicleRes.segment}` : ""
-          }.`
-        );
+      if (!callRes?.success) {
+        setError(callRes?.error || "Call could not be placed.");
+        return;
       }
+
+      setSuccessMsg(`Calling ${foundCustomer.name || foundCustomer.phone_number}…`);
+      onCalled();
+
+      setTimeout(() => handleOpenChange(false), 900);
     } catch (err) {
-      console.error("Add customer failed:", err);
-      setError("Something went wrong saving the customer.");
+      console.error("Quick call failed:", err);
+      setError("Something went wrong placing the call.");
     } finally {
       setSubmitting(null);
     }
@@ -1121,9 +1130,24 @@ function AddCallCustomerDialog({
                 >
                   {lookupLoading ? <Loader2 className="size-4 animate-spin" /> : "Find"}
                 </Button>
+                {foundCustomer && (
+                  <Button
+                    type="button"
+                    onClick={handleQuickCall}
+                    disabled={submitting !== null}
+                  >
+                    {submitting === "quickcall" ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <Phone className="size-4" />
+                    )}
+                    Call
+                  </Button>
+                )}
               </div>
               <p className="text-xs text-muted-foreground">
-                10 digits only — existing customer ho to "Find" se uski gaadi bhi load ho jaayegi
+                10 digits only — existing customer ho to "Find" se uski gaadi bhi load ho jaayegi,
+                phir seedha "Call" kar sakte ho
               </p>
             </div>
 
@@ -1142,10 +1166,10 @@ function AddCallCustomerDialog({
             {lookupMsg && (
               <p
                 className={`text-sm ${lookupMsg.kind === "err"
-                    ? "text-destructive"
-                    : lookupMsg.kind === "ok"
-                      ? "text-[color:var(--success)]"
-                      : "text-muted-foreground"
+                  ? "text-destructive"
+                  : lookupMsg.kind === "ok"
+                    ? "text-[color:var(--success)]"
+                    : "text-muted-foreground"
                   }`}
               >
                 {lookupMsg.text}
@@ -1164,8 +1188,8 @@ function AddCallCustomerDialog({
                       type="button"
                       onClick={() => handlePickVehicle(v)}
                       className={`text-xs rounded-full px-2 py-1 border ${selectedVehicleId === String(v.id)
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-secondary text-secondary-foreground"
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary text-secondary-foreground"
                         }`}
                     >
                       {v.vehicle_name || v.registration_no || `#${v.id}`}
@@ -1263,15 +1287,6 @@ function AddCallCustomerDialog({
         </div>
 
         <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={handleAdd} disabled={submitting !== null || !phone}>
-            {submitting === "add" ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <UserPlus className="size-4" />
-            )}
-            Add only
-          </Button>
-
           <Button onClick={handleCall} disabled={submitting !== null || !phone}>
             {submitting === "call" ? (
               <Loader2 className="size-4 animate-spin" />

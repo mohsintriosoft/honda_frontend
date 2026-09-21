@@ -597,7 +597,7 @@ export default function AppointmentsPage() {
   function renderGridCell(day: CalendarDay, time: string) {
     const closedDay = !isGlobal && (day.isHoliday || day.isWeeklyOff);
     if (closedDay) {
-      return <div key={time} className={`border-b border-r bg-muted/20 ${cellMinHeightClass}`} />;
+      return <div key={time} className={`border-b border-r bg-muted/60 ${cellMinHeightClass}`} />;
     }
 
     const slot = !isGlobal ? day.slots.find((s) => s.time === time) : undefined;
@@ -867,7 +867,7 @@ export default function AppointmentsPage() {
                             type="button"
                             onClick={() => setSelectedDate(day.date)}
                             className={`sticky top-0 z-20 bg-background border-b border-r text-center ${headerPaddingClass} ${isToday ? "bg-primary/5" : ""
-                              } ${closed ? "bg-muted/30" : ""} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
+                              } ${closed ? "bg-muted/60" : ""} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
                           >
                             <div className={`${headerWeekdayClass} text-muted-foreground`}>{day.weekday}</div>
                             <div className={`${headerDateClass} ${isToday ? "text-primary" : ""}`}>

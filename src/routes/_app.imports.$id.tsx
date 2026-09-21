@@ -49,7 +49,6 @@ import {
   get_import_detail,
   get_import_preview,
   post_import_commit,
-  post_import_revert,
   get_import_errors,
   get_import_unmatched,
   get_import_rows,
@@ -302,72 +301,6 @@ function CommitDialog({
   );
 }
 
-function RevertDialog({
-  row,
-  onReverted,
-}: {
-  row: CsvStatsRow;
-  onReverted: (row: CsvStatsRow) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleRevert = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await server_post_data(post_import_revert(row.id));
-      if (!res?.success) throw new Error(res?.error || "Revert failed");
-      onReverted(res.import as CsvStatsRow);
-      setOpen(false);
-    } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || "Revert failed, nothing was changed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <Button variant="outline" className="gap-2" onClick={() => setOpen(true)}>
-        <RotateCcw className="size-4" />
-        Revert
-      </Button>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Revert this import?</DialogTitle>
-          <DialogDescription>
-            Use this when the wrong file, branch, or month was committed.
-          </DialogDescription>
-        </DialogHeader>
-        <Alert variant="destructive" className="border-destructive/30">
-          <AlertTriangle className="size-4" />
-          <AlertTitle className="text-sm">This flags data, it doesn't delete it</AlertTitle>
-          <AlertDescription className="text-xs space-y-1">
-            <p>The segment data this import created will be retired and any call tasks still pending will be skipped.</p>
-            <p>Customers and vehicles that were created or updated are <span className="font-medium">not</span> rolled back — they may have been touched by a later import since. Raw rows stay for audit either way.</p>
-          </AlertDescription>
-        </Alert>
-        {error && (
-          <Alert variant="destructive">
-            <XCircle className="size-4" />
-            <AlertDescription>{error}</AlertDescription>
-          </Alert>
-        )}
-        <DialogFooter>
-          <Button variant="ghost" onClick={() => setOpen(false)} disabled={busy}>
-            Cancel
-          </Button>
-          <Button variant="destructive" onClick={handleRevert} disabled={busy} className="gap-2">
-            {busy && <Loader2 className="size-4 animate-spin" />}
-            {busy ? "Reverting…" : "Revert import"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 /* =========================================================
    UNMATCHED ROW — manual segment assignment
@@ -667,7 +600,6 @@ export default function ImportDetails() {
   const canAttemptCommit =
     row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled);
   const isLiveCommitting = row.status === "processing" && !row.commit_stalled;
-  const canRevert = row.status === "done";
 
   return (
     <div>
@@ -719,7 +651,6 @@ export default function ImportDetails() {
                 Import blocked — unmatched rows
               </Badge>
             )}
-            {canRevert && <RevertDialog row={row} onReverted={setRow} />}
           </div>
         }
       />

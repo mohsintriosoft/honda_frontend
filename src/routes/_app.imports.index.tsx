@@ -131,6 +131,17 @@ interface Branch {
 // limitation" note).
 const LIVE_STATUSES: ImportStatus[] = ["uploaded", "parsing", "processing"];
 
+// unmatched_count is sometimes left at its default (0) even though the
+// per-type breakdown was populated — fall back to summing unmatched_types
+// so the column doesn't read "0" for a row that actually has unmatched rows.
+function unmatchedCount(row: CsvStatsRow) {
+    if (row.unmatched_count > 0) return row.unmatched_count;
+    return Object.values(row.unmatched_types ?? {}).reduce(
+        (sum, n) => sum + (Number(n) || 0),
+        0,
+    );
+}
+
 const LIST_TYPE_LABEL: Record<ListType, string> = {
     service: "Service due",
     missed: "Missed / lost service",
@@ -717,13 +728,16 @@ export default function Imports() {
                                                     {row.segment_data_created.toLocaleString()}
                                                 </TableCell>
                                                 <TableCell className="text-right tabular-nums">
-                                                    {row.unmatched_count > 0 ? (
-                                                        <span className="text-amber-600 dark:text-amber-400">
-                                                            {row.unmatched_count.toLocaleString()}
-                                                        </span>
-                                                    ) : (
-                                                        "0"
-                                                    )}
+                                                    {(() => {
+                                                        const count = unmatchedCount(row);
+                                                        return count > 0 ? (
+                                                            <span className="text-amber-600 dark:text-amber-400">
+                                                                {count.toLocaleString()}
+                                                            </span>
+                                                        ) : (
+                                                            "0"
+                                                        );
+                                                    })()}
                                                 </TableCell>
                                                 <TableCell>
                                                     <StatusBadge status={row.status} />

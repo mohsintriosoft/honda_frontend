@@ -52,6 +52,8 @@ import OmHondaChunks from "./routes/omhondachunks";
 
 import WhatsApp from "./routes/_app.whatsapp.index";
 
+import Health from "./routes/_app.health.index";
+
 function AppLayout() {
   return (
     <AppShell>
@@ -202,6 +204,10 @@ export default function App() {
           {/* ================= WHATSAPP ================= */}
 
           <Route path="/whatsapp" element={<WhatsApp />} />
+
+          {/* ================= HEALTH ================= */}
+
+          <Route path="/health" element={<Health />} />
         </Route>
 
         {/* 404 */}

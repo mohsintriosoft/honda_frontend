@@ -35,155 +35,155 @@ type ProviderSettingsResponse = {
   updated_at: string;
 };
 
-function AiBackendTab() {
-  const [config, setConfig] = useState<ProviderSettingsResponse | null>(null);
-  const [llmProvider, setLlmProvider] = useState<string>("");
-  const [sttProvider, setSttProvider] = useState<string>("");
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+// function AiBackendTab() {
+//   const [config, setConfig] = useState<ProviderSettingsResponse | null>(null);
+//   const [llmProvider, setLlmProvider] = useState<string>("");
+//   const [sttProvider, setSttProvider] = useState<string>("");
+//   const [loading, setLoading] = useState(true);
+//   const [saving, setSaving] = useState(false);
+//   const [error, setError] = useState<string | null>(null);
+//   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+//   useEffect(() => {
+//     let cancelled = false;
 
-    async function load() {
-      setLoading(true);
-      setError(null);
-      try {
-        const data: ProviderSettingsResponse = await server_get_data(get_provider_settings);
-        if (cancelled) return;
-        setConfig(data);
-        setLlmProvider(data.llm_provider);
-        setSttProvider(data.stt_provider);
-      } catch (err) {
-        console.error("Failed to load provider settings:", err);
-        if (!cancelled) {
-          handleError("network");
-          setError("Failed to load AI backend settings.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
+//     async function load() {
+//       setLoading(true);
+//       setError(null);
+//       try {
+//         const data: ProviderSettingsResponse = await server_get_data(get_provider_settings);
+//         if (cancelled) return;
+//         setConfig(data);
+//         setLlmProvider(data.llm_provider);
+//         setSttProvider(data.stt_provider);
+//       } catch (err) {
+//         console.error("Failed to load provider settings:", err);
+//         if (!cancelled) {
+//           handleError("network");
+//           setError("Failed to load AI backend settings.");
+//         }
+//       } finally {
+//         if (!cancelled) setLoading(false);
+//       }
+//     }
 
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+//     load();
+//     return () => {
+//       cancelled = true;
+//     };
+//   }, []);
 
-  const isDirty =
-    config !== null && (llmProvider !== config.llm_provider || sttProvider !== config.stt_provider);
+//   const isDirty =
+//     config !== null && (llmProvider !== config.llm_provider || sttProvider !== config.stt_provider);
 
-  async function handleSave() {
-    setSaving(true);
-    setError(null);
-    setSaved(false);
-    try {
-      const data = await server_post_json(post_provider_settings, {
-        llm_provider: llmProvider,
-        stt_provider: sttProvider,
-      });
-      if (data?.success === false) throw new Error(data?.error || "Save failed");
-      setConfig((prev) => (prev ? { ...prev, llm_provider: llmProvider, stt_provider: sttProvider } : prev));
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2500);
-    } catch (err) {
-      console.error("Failed to save provider settings:", err);
-      handleError("network");
-      setError("Failed to save AI backend settings.");
-    } finally {
-      setSaving(false);
-    }
-  }
+//   async function handleSave() {
+//     setSaving(true);
+//     setError(null);
+//     setSaved(false);
+//     try {
+//       const data = await server_post_json(post_provider_settings, {
+//         llm_provider: llmProvider,
+//         stt_provider: sttProvider,
+//       });
+//       if (data?.success === false) throw new Error(data?.error || "Save failed");
+//       setConfig((prev) => (prev ? { ...prev, llm_provider: llmProvider, stt_provider: sttProvider } : prev));
+//       setSaved(true);
+//       setTimeout(() => setSaved(false), 2500);
+//     } catch (err) {
+//       console.error("Failed to save provider settings:", err);
+//       handleError("network");
+//       setError("Failed to save AI backend settings.");
+//     } finally {
+//       setSaving(false);
+//     }
+//   }
 
-  if (loading) {
-    return (
-      <Card>
-        <CardContent className="pt-6 flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading backend configuration…
-        </CardContent>
-      </Card>
-    );
-  }
+//   if (loading) {
+//     return (
+//       <Card>
+//         <CardContent className="pt-6 flex items-center gap-2 text-sm text-muted-foreground">
+//           <Loader2 className="h-4 w-4 animate-spin" />
+//           Loading backend configuration…
+//         </CardContent>
+//       </Card>
+//     );
+//   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-display">AI Backend</CardTitle>
-      </CardHeader>
+//   return (
+//     <Card>
+//       <CardHeader>
+//         <CardTitle className="font-display">AI Backend</CardTitle>
+//       </CardHeader>
 
-      <CardContent className="space-y-5 max-w-lg">
-        <p className="text-sm text-muted-foreground">
-          Switch which provider handles conversation (LLM) and speech-to-text (STT).
-          Changes apply immediately — no restart needed.
-        </p>
+//       <CardContent className="space-y-5 max-w-lg">
+//         <p className="text-sm text-muted-foreground">
+//           Switch which provider handles conversation (LLM) and speech-to-text (STT).
+//           Changes apply immediately — no restart needed.
+//         </p>
 
-        <div>
-          <Label>LLM setting</Label>
-          <Select value={llmProvider} onValueChange={setLlmProvider}>
-            <SelectTrigger className="mt-1">
-              <SelectValue placeholder="Select an LLM provider" />
-            </SelectTrigger>
-            <SelectContent>
-              {config?.llm_choices.map((choice) => (
-                <SelectItem key={choice.value} value={choice.value}>
-                  {choice.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+//         <div>
+//           <Label>LLM setting</Label>
+//           <Select value={llmProvider} onValueChange={setLlmProvider}>
+//             <SelectTrigger className="mt-1">
+//               <SelectValue placeholder="Select an LLM provider" />
+//             </SelectTrigger>
+//             <SelectContent>
+//               {config?.llm_choices.map((choice) => (
+//                 <SelectItem key={choice.value} value={choice.value}>
+//                   {choice.label}
+//                 </SelectItem>
+//               ))}
+//             </SelectContent>
+//           </Select>
+//         </div>
 
-        <div>
-          <Label>STT setting</Label>
-          <Select value={sttProvider} onValueChange={setSttProvider}>
-            <SelectTrigger className="mt-1">
-              <SelectValue placeholder="Select an STT provider" />
-            </SelectTrigger>
-            <SelectContent>
-              {config?.stt_choices.map((choice) => (
-                <SelectItem key={choice.value} value={choice.value}>
-                  {choice.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
+//         <div>
+//           <Label>STT setting</Label>
+//           <Select value={sttProvider} onValueChange={setSttProvider}>
+//             <SelectTrigger className="mt-1">
+//               <SelectValue placeholder="Select an STT provider" />
+//             </SelectTrigger>
+//             <SelectContent>
+//               {config?.stt_choices.map((choice) => (
+//                 <SelectItem key={choice.value} value={choice.value}>
+//                   {choice.label}
+//                 </SelectItem>
+//               ))}
+//             </SelectContent>
+//           </Select>
+//         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+//         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        <div className="flex items-center gap-3">
-          <Button className="mt-1" onClick={handleSave} disabled={!isDirty || saving}>
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Saving…
-              </>
-            ) : (
-              "Save"
-            )}
-          </Button>
+//         <div className="flex items-center gap-3">
+//           <Button className="mt-1" onClick={handleSave} disabled={!isDirty || saving}>
+//             {saving ? (
+//               <>
+//                 <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+//                 Saving…
+//               </>
+//             ) : (
+//               "Save"
+//             )}
+//           </Button>
 
-          {saved && (
-            <span className="flex items-center gap-1 text-sm text-green-600 mt-1">
-              <CheckCircle2 className="h-4 w-4" />
-              Saved
-            </span>
-          )}
-        </div>
+//           {saved && (
+//             <span className="flex items-center gap-1 text-sm text-green-600 mt-1">
+//               <CheckCircle2 className="h-4 w-4" />
+//               Saved
+//             </span>
+//           )}
+//         </div>
 
-        {config && (
-          <p className="text-xs text-muted-foreground">
-            Last updated {new Date(config.updated_at).toLocaleString()}
-          </p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+//         {config && (
+//           <p className="text-xs text-muted-foreground">
+//             Last updated {new Date(config.updated_at).toLocaleString()}
+//           </p>
+//         )}
+//       </CardContent>
+//     </Card>
+//   );
+// }
 
 export default function SettingsPage() {
   return (
@@ -203,7 +203,6 @@ export default function SettingsPage() {
                 "voices",
                 "hours",
                 "languages",
-                "ai-backend",
                 "api",
                 "whatsapp",
                 "telephony",
@@ -213,7 +212,7 @@ export default function SettingsPage() {
                   value={k}
                   className="justify-start capitalize data-[state=active]:bg-accent"
                 >
-                  {k === "ai-backend" ? "AI Backend" : k}
+                  {k}
                 </TabsTrigger>
               ))}
             </TabsList>
@@ -315,9 +314,9 @@ export default function SettingsPage() {
               </TabsContent>
 
               {/* AI Backend */}
-              <TabsContent value="ai-backend">
+              {/* <TabsContent value="ai-backend">
                 <AiBackendTab />
-              </TabsContent>
+              </TabsContent> */}
 
               {/* API */}
               <TabsContent value="api">

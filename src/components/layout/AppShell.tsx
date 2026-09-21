@@ -28,6 +28,7 @@ import {
   ChevronDown,
   Command,
   UploadCloud,
+  HeartPulse,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -67,6 +68,7 @@ const nav = [
   { to: "/branches", label: "Branches", icon: Building2 },   // NEW
   { to: "/imports", label: "Data Import", icon: UploadCloud },   // NEW
   { to: "/analytics", label: "Reports & Analytics", icon: BarChart3 },
+  { to: "/health", label: "System Health", icon: HeartPulse },
 ] as const;
 
 const secondary = [

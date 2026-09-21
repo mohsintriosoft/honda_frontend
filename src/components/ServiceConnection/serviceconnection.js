@@ -194,6 +194,10 @@ const get_provider_settings = APL_LINK + "api/provider-settings/";
 const post_provider_settings = APL_LINK + "api/provider-settings/update/";
 
 
+// Health
+const get_provider_health = APL_LINK + "api/provider-health/";
+
+
 
 /* =========================================================
    COMMON CONFIG
@@ -925,6 +929,8 @@ export {
   // NEW — Settings → AI Backend tab (LLM/STT provider selector)
   get_provider_settings,
   post_provider_settings,
+  // Health
+  get_provider_health,
   // Basic Methods
   server_get_data,
   server_post_data,
