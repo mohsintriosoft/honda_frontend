@@ -184,6 +184,15 @@ const get_import_rows = (id) => `${APL_LINK}api/imports/${id}/rows/`;
 const get_dialer_schedule = APL_LINK + "api/dialer-schedule/";
 const post_dialer_schedule = APL_LINK + "api/dialer-schedule/update/";
 
+// 🔥 NEW — Settings → AI Backend tab. GET returns the current dealer's
+// llm_provider/stt_provider + the valid choice list (so the dropdown can't
+// offer a provider with no client); POST saves it. Same shape as
+// dialer-schedule above. See provider_settings / update_provider_settings
+// in views_admin.py — the live call reads Dealer.llm_provider /
+// Dealer.stt_provider fresh on the next turn, no restart needed.
+const get_provider_settings = APL_LINK + "api/provider-settings/";
+const post_provider_settings = APL_LINK + "api/provider-settings/update/";
+
 
 
 /* =========================================================
@@ -913,6 +922,9 @@ export {
   get_import_rows,
   get_dialer_schedule,
   post_dialer_schedule,
+  // NEW — Settings → AI Backend tab (LLM/STT provider selector)
+  get_provider_settings,
+  post_provider_settings,
   // Basic Methods
   server_get_data,
   server_post_data,

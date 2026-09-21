@@ -24,16 +24,21 @@ import {
   Plus,
   Trash2,
   GripVertical,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 
 import {
   server_get_data,
   server_patch_data,
+  server_post_json,
   get_llm_settings,
   get_tts_voices,
   get_agent_knowledge,
   get_branches,
   patch_segment,
+  get_provider_settings,
+  post_provider_settings,
 } from "@/components/ServiceConnection/serviceconnection";
 import { handleError } from "@/components/CommonJquery/CommonJquery";
 import { cn } from "@/lib/utils";
@@ -273,6 +278,70 @@ function AgentDetailContent({
 
   const selectedVoice = voices.find((voice) => voice.id === voiceId) ?? setting.voice;
 
+  // ------------------------------------------------------------------
+  // AI Backend — LLM / STT provider picker. This is a Dealer-level
+  // setting (not per-agent), same one editable from Settings → AI
+  // Backend, surfaced here too so it's visible right alongside the rest
+  // of this agent's config. Loaded/saved independently of the
+  // persona/voice form above.
+  // ------------------------------------------------------------------
+  type ProviderChoice = { value: string; label: string };
+
+  const [llmProvider, setLlmProvider] = useState<string>("");
+  const [sttProvider, setSttProvider] = useState<string>("");
+  const [llmChoices, setLlmChoices] = useState<ProviderChoice[]>([]);
+  const [sttChoices, setSttChoices] = useState<ProviderChoice[]>([]);
+  const [initialProviders, setInitialProviders] = useState<{ llm: string; stt: string } | null>(null);
+  const [providerLoading, setProviderLoading] = useState(true);
+  const [providerSaving, setProviderSaving] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [providerSaved, setProviderSaved] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      setProviderLoading(true);
+      setProviderError(null);
+      try {
+        const res = await server_get_data(get_provider_settings);
+        setLlmProvider(res?.llm_provider ?? "");
+        setSttProvider(res?.stt_provider ?? "");
+        setLlmChoices(res?.llm_choices ?? []);
+        setSttChoices(res?.stt_choices ?? []);
+        setInitialProviders({ llm: res?.llm_provider ?? "", stt: res?.stt_provider ?? "" });
+      } catch (error) {
+        console.error("Failed to load provider settings:", error);
+        setProviderError("Unable to load LLM/STT provider settings.");
+      } finally {
+        setProviderLoading(false);
+      }
+    })();
+  }, []);
+
+  const providersDirty =
+    initialProviders !== null &&
+    (llmProvider !== initialProviders.llm || sttProvider !== initialProviders.stt);
+
+  async function handleSaveProviders() {
+    setProviderSaving(true);
+    setProviderError(null);
+    setProviderSaved(false);
+    try {
+      const res = await server_post_json(post_provider_settings, {
+        llm_provider: llmProvider,
+        stt_provider: sttProvider,
+      });
+      if (res?.success === false) throw new Error(res?.error || "Save failed");
+      setInitialProviders({ llm: llmProvider, stt: sttProvider });
+      setProviderSaved(true);
+      setTimeout(() => setProviderSaved(false), 2500);
+    } catch (error) {
+      console.error("Failed to save provider settings:", error);
+      setProviderError("Failed to save LLM/STT provider settings.");
+    } finally {
+      setProviderSaving(false);
+    }
+  }
+
   // Conversation Flow tab edits whichever segment the user is already on
   // (route :agentId === segment id — see AgentDetail's useParams above) --
   // no in-page segment picker needed since the Agents list is where that
@@ -374,6 +443,96 @@ function AgentDetailContent({
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
+
+        {/* ---------------------------------------------------------------- */}
+        {/* AI Backend — LLM / STT provider (Dealer-level, above the tabs    */}
+        {/* so it's visible no matter which tab is open)                    */}
+        {/* ---------------------------------------------------------------- */}
+
+        <Card>
+          <CardContent className="space-y-3 pt-6">
+            <div>
+              <h4 className="text-sm font-semibold">AI Backend</h4>
+              <p className="text-xs text-muted-foreground">
+                Which provider handles conversation (LLM) and speech-to-text (STT)
+                for every agent — changes apply immediately, no restart.
+              </p>
+            </div>
+
+            {providerLoading ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                Loading…
+              </div>
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 max-w-lg">
+                  <div className="space-y-1.5">
+                    <Label>LLM setting</Label>
+
+                    <select
+                      className="w-full h-9 rounded-md border px-3 text-sm bg-background"
+                      value={llmProvider}
+                      onChange={(event) => setLlmProvider(event.target.value)}
+                    >
+                      {llmChoices.map((choice) => (
+                        <option key={choice.value} value={choice.value}>
+                          {choice.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>STT setting</Label>
+
+                    <select
+                      className="w-full h-9 rounded-md border px-3 text-sm bg-background"
+                      value={sttProvider}
+                      onChange={(event) => setSttProvider(event.target.value)}
+                    >
+                      {sttChoices.map((choice) => (
+                        <option key={choice.value} value={choice.value}>
+                          {choice.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {providerError && (
+                  <p className="text-sm text-destructive">{providerError}</p>
+                )}
+
+                <div className="flex items-center gap-3">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={!providersDirty || providerSaving}
+                    onClick={handleSaveProviders}
+                  >
+                    {providerSaving ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        Saving…
+                      </>
+                    ) : (
+                      "Save AI backend"
+                    )}
+                  </Button>
+
+                  {providerSaved && (
+                    <span className="flex items-center gap-1 text-sm text-green-600">
+                      <CheckCircle2 className="size-4" />
+                      Saved
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
 
         {/* ---------------------------------------------------------------- */}
         {/* Tabs — the previous persona/voice + knowledge UI, unchanged      */}
