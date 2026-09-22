@@ -393,6 +393,16 @@ function AgentDetailContent({
     loadAgentKnowledge();
   }, [setting.id]);
 
+  // The endpoint returns every doc reachable through ANY segment this
+  // module serves (all siblings), but this page is scoped to the ONE
+  // segment the user is on — so a doc tagged specifically to a sibling
+  // segment (e.g. "2nd Free Service") must not show up here on "1st Free
+  // Service"'s page. Global docs (no specific segment) still apply
+  // everywhere and stay in.
+  const visibleKnowledge = agentKnowledge.filter(
+    (item) => item.is_global || String(item.segment_id) === segmentId,
+  );
+
   /* ---------------------------------------------------------------------- */
   /* Save                                                                   */
   /* ---------------------------------------------------------------------- */
@@ -635,7 +645,7 @@ function AgentDetailContent({
             */}
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Documents reachable through this module's segments.
+                Documents tagged to this segment, plus global documents.
               </p>
               <Button variant="outline" size="sm" asChild>
                 <Link to="/knowledge">
@@ -661,10 +671,10 @@ function AgentDetailContent({
               </Card>
             )}
 
-            {!knowledgeLoading && !knowledgeError && agentKnowledge.length === 0 && (
+            {!knowledgeLoading && !knowledgeError && visibleKnowledge.length === 0 && (
               <Card>
                 <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                  No knowledge documents are tagged to this module's segments yet.
+                  No knowledge documents are tagged to this segment yet.
                 </CardContent>
               </Card>
             )}
@@ -672,7 +682,7 @@ function AgentDetailContent({
             <div className="grid gap-3 md:grid-cols-2">
               {!knowledgeLoading &&
                 !knowledgeError &&
-                agentKnowledge.map((item) => {
+                visibleKnowledge.map((item) => {
                   const moduleLabel = item.is_global
                     ? "Global"
                     : setting.segments.find((s) => s.id === item.segment_id)?.name ??

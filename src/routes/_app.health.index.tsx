@@ -95,7 +95,7 @@ const LEVELS: Record<
         chip: "border-red-600 bg-red-600 text-white",
         marker: "bg-red-600",
         card: "border-red-600/70 bg-red-500/5",
-        advice: (s) => `Out of balance. Anything that needs ${s} will fail until it's topped up.`,
+        advice: (s) => `Out of balance. ${s} will fail until it's topped up.`,
     },
     unknown: {
         label: "Unavailable",
@@ -145,7 +145,7 @@ function HealthCard({ card }: { card: HealthCardData }) {
                         <h2 id={`health-${card.key}`} className="font-display font-semibold text-base">
                             {card.label}
                         </h2>
-                        <p className="text-xs text-muted-foreground">{card.service}</p>
+                        {/* <p className="text-xs text-muted-foreground">{card.service}</p> */}
                     </div>
                 </div>
                 <span
@@ -159,7 +159,7 @@ function HealthCard({ card }: { card: HealthCardData }) {
                 </span>
             </header>
 
-            <p className="text-xs text-muted-foreground">Status on {card.provider}</p>
+            <p className="text-xs text-muted-foreground">Status on {card.label}</p>
 
             {message && (
                 <p
