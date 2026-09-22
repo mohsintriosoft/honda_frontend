@@ -647,12 +647,6 @@ function AgentDetailContent({
               <p className="text-sm text-muted-foreground">
                 Documents tagged to this segment, plus global documents.
               </p>
-              <Button variant="outline" size="sm" asChild>
-                <Link to="/knowledge">
-                  Edit in Knowledge
-                  <ExternalLink className="size-3.5" />
-                </Link>
-              </Button>
             </div>
 
             {knowledgeLoading && (
