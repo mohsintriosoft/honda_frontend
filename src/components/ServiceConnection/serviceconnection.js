@@ -1,5 +1,5 @@
 import axios from "axios";
-import { retrieveData, storeData } from "../LocalConnection/LocalConnection.js";
+import { retrieveData, storeData, removeData } from "../LocalConnection/LocalConnection.js";
 
 const NO_TOKEN_VALUES = ["0", "1", "", null, undefined];
 
@@ -193,11 +193,8 @@ const post_dialer_schedule = APL_LINK + "api/dialer-schedule/update/";
 const get_provider_settings = APL_LINK + "api/provider-settings/";
 const post_provider_settings = APL_LINK + "api/provider-settings/update/";
 
-
 // Health
 const get_provider_health = APL_LINK + "api/provider-health/";
-
-
 
 /* =========================================================
    COMMON CONFIG
@@ -260,7 +257,7 @@ const getStaffUser = () => {
 // the navigate("/login") is left to the caller, e.g. AppShell.handleSignOut.
 const clearAuthSession = () => {
   try {
-    localStorage.clear();
+    removeData();
   } catch (error) {
     console.error("Unable to clear auth session:", error);
   }
