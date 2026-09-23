@@ -38,17 +38,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { IngestDropzone } from "@/components/agents/IngestDropzone";
 import { TranscriptViewer, SentimentStrip } from "@/components/agents/TranscriptViewer";
-import { TrainingRunProgress } from "@/components/agents/TrainingRunProgress";
 import { ModuleBadge } from "@/components/agents/ModuleBadge";
-import { ClassificationPanel } from "@/components/agents/ClassificationPanel";
-
-import {
-  ModuleFallback,
-  UploadModuleMapping,
-  CampaignModuleMapping,
-} from "@/components/agents/ModuleMappingControls";
 
 import {
   recordings as seedRecordings,

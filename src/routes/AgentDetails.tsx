@@ -1,11 +1,8 @@
 import { Link, useParams } from "react-router-dom";
 import { useEffect, useState, useRef, forwardRef, useImperativeHandle, type DragEvent } from "react";
-
 import Loader from "@/components/layout/Loader";
 import { PageHeader } from "@/components/layout/AppShell";
-
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { Badge } from "@/components/ui/badge";
@@ -24,8 +21,6 @@ import {
   Plus,
   Trash2,
   GripVertical,
-  Loader2,
-  CheckCircle2,
 } from "lucide-react";
 
 import {
@@ -915,13 +910,6 @@ const VARIABLE_DEFS: { key: string; label: string }[] = [
 ];
 const VARIABLE_LOOKUP = new Map(VARIABLE_DEFS.map((v) => [v.key, v]));
 
-// Raw stored/sent value stays a plain "...{customer_name}..." string — these
-// helpers only run ONCE, to seed the editor's own block list when it first
-// mounts (see SegmentLineEditor below). `fallbackToBlank` controls what an
-// empty raw value seeds as: a single blank, directly-editable text block
-// (opening line — always has an input to type into) vs. a genuinely empty
-// list (closing line — lets the caller show a "nothing yet" message instead
-// of a box with nothing in it).
 function parseLineToSegments(raw: string, fallbackToBlank: boolean, makeId: () => string): LineSegment[] {
   const parts = (raw ?? "").split(/(\{[a-zA-Z_]+\})/g).filter((part) => part !== "");
   const segments: LineSegment[] = parts.map((part) => {
@@ -960,18 +948,7 @@ const SegmentLineEditor = forwardRef<
     emptyMessage?: string;
   }
 >(function SegmentLineEditor({ value, onChange, placeholder, emptyMessage }, ref) {
-  // Blocks are owned as our OWN state, seeded from the raw string only once
-  // on mount — not re-derived from `value` on every render. That re-derive
-  // was the bug: a block that currently serializes to "" (an empty text box
-  // the admin hasn't typed into yet, or a second/third line they're about
-  // to fill in) is indistinguishable from "no block at all" once it's been
-  // flattened into a plain string, so it silently vanished the moment
-  // "Add text" pushed it — meaning you could only ever have exactly one
-  // block, never several. Keeping the block list itself as state (each
-  // block tagged with a stable id, unrelated to its text content) lets any
-  // number of text/variable blocks — including empty ones — coexist and
-  // survive typing, reordering, and removal. `onChange` still fires the
-  // serialized string upward so the parent can save it.
+
   const idRef = useRef(0);
   const makeId = () => {
     idRef.current += 1;
@@ -1036,18 +1013,6 @@ const SegmentLineEditor = forwardRef<
         {segments.map((segment, index) => {
           const isDragging = dragIndex === index;
           const isOver = overIndex === index && dragIndex !== null && dragIndex !== index;
-
-          // Drag-to-reorder is split into two roles: the grip handle is the
-          // only thing that's actually `draggable` (drag source), while the
-          // row itself just listens for drag-over/drop (drop target). The
-          // whole row — including the live <Input> — used to be one single
-          // draggable element, which is what froze the page: making an
-          // element that contains an actively-focused, IME-composed text
-          // input (Hindi transliteration, in this case) itself draggable
-          // is a known trap — the browser's native drag machinery and the
-          // input's text-composition/selection handling fight over the
-          // same mouse events and the tab can hang. Keeping `draggable`
-          // scoped to the small icon avoids that entirely.
           const dropTargetHandlers = {
             onDragOver: (event: DragEvent) => {
               event.preventDefault();

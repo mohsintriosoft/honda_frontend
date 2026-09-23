@@ -8,10 +8,10 @@ import Home from "./routes/index";
 import Login from "./routes/login";
 import Dashboard from "./routes/_app.dashboard";
 
-import Agents from "./routes/_app.agents.index";
-import AgentDetails from "./routes/_app.agents.$agentId";
-import AgentTraining from "./routes/_app.agents.training";
-import AgentRecordings from "./routes/_app.agents.recordings.index";
+import Agents from "./routes/Agents";
+import AgentDetails from "./routes/AgentDetails";
+import AgentTraining from "./routes/AgentTraining";
+import AgentRecordings from "./routes/AgentRecordings";
 
 import Analytics from "./routes/_app.analytics.index";
 import Appointments from "./routes/_app.appointments.index";

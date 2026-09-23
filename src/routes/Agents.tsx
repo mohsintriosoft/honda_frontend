@@ -17,11 +17,6 @@ import {
 } from "@/components/ServiceConnection/serviceconnection";
 import { handleError } from "@/components/CommonJquery/CommonJquery";
 
-// Agents are per MODULE, not per segment (docs §10.3): there are at most
-// 3 real agents — Service, Insurance, AMC — each shared across however
-// many segments/campaigns use that module. This page still lists every
-// SEGMENT (that's the unit people recognize/manage day to day); each
-// card is annotated with whichever module-agent currently serves it.
 const TOTAL_MODULES = 3;
 
 interface SegmentCard {
