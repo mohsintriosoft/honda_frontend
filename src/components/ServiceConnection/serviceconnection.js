@@ -272,6 +272,33 @@ const isAuthenticated = () => {
 };
 
 /* =========================================================
+   GLOBAL 401 HANDLING
+========================================================= */
+
+const _URLS_EXEMPT_FROM_401_REDIRECT = [login_user_email, register_user_email];
+
+const _handleUnauthorized = (error) => {
+  const status = error?.response?.status;
+  const requestUrl = error?.config?.url;
+
+  if (status === 401 && !_URLS_EXEMPT_FROM_401_REDIRECT.includes(requestUrl)) {
+    clearAuthSession();
+
+    // Hard redirect (not react-router navigate) — this file has no
+    // access to the router, and a full reload is exactly what we want
+    // anyway: it guarantees every in-memory bit of stale session state
+    // (React context, component state, etc.) is gone too.
+    if (typeof window !== "undefined" && window.location.pathname !== "/login") {
+      window.location.href = "/login";
+    }
+  }
+
+  return Promise.reject(error);
+};
+
+axios.interceptors.response.use((response) => response, _handleUnauthorized);
+
+/* =========================================================
    GET COMMON DATA
 ========================================================= */
 
@@ -821,7 +848,7 @@ apiClient.interceptors.response.use(
       console.error("Axios Error:", error.message);
     }
 
-    return Promise.reject(error);
+    return _handleUnauthorized(error);
   },
 );
 
@@ -843,6 +870,7 @@ export {
   getStaffUser,
   clearAuthSession,
   isAuthenticated,
+  getAccessToken,
   get_dashboard_summary,
   get_analytics_summary,
   get_segments,

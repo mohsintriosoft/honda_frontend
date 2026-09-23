@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Loader2, Eye, EyeOff, ArrowRight } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -174,13 +174,6 @@ export default function Login() {
                             )}
                         </Button>
                     </form>
-
-                    <p className="mt-6 text-center text-sm text-muted-foreground">
-                        New to Triosoft?{" "}
-                        <Link to="/register" className="font-medium text-foreground hover:underline">
-                            Create an account
-                        </Link>
-                    </p>
                 </div>
             </div>
         </div>

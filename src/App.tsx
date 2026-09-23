@@ -2,10 +2,10 @@ import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom
 
 import { AppShell } from "@/components/layout/AppShell";
 import { isAuthenticated } from "@/components/ServiceConnection/serviceconnection";
+import { AuthProvider } from "@/context/AuthContext";
 
 import Home from "./routes/index";
 import Login from "./routes/login";
-import Register from "./routes/register";
 import Dashboard from "./routes/_app.dashboard";
 
 import Agents from "./routes/_app.agents.index";
@@ -56,22 +56,25 @@ import Health from "./routes/_app.health.index";
 
 function AppLayout() {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <AuthProvider>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </AuthProvider>
   );
 }
 
-// Gates every route under AppLayout behind a session. Swap the
-// isAuthenticated() check for a real "am I logged in" call once
-// login_user_email/register_user_email are live on the backend.
-// function RequireAuth() {
-//   if (!isAuthenticated()) {
-//     return <Navigate to="/login" replace />;
-//   }
+// Gates every route under AppLayout behind a session. isAuthenticated()
+// is a plain synchronous localStorage read (no network call), so this
+// redirects instantly with no flash before AuthProvider's own
+// background GET /me/ refresh (inside AppLayout) even starts.
+function RequireAuth() {
+  if (!isAuthenticated()) {
+    return <Navigate to="/login" replace />;
+  }
 
-//   return <AppLayout />;
-// }
+  return <AppLayout />;
+}
 
 function NotFound() {
   return (
@@ -100,7 +103,6 @@ export default function App() {
 
         {/* Auth */}
         <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
 
         {/* Standalone browser test-call page — deliberately OUTSIDE
             AppLayout (no sidebar/topbar), same as a real incoming-call
@@ -108,7 +110,7 @@ export default function App() {
         <Route path="/omhondachunks" element={<OmHondaChunks />} />
 
         {/* Application Layout */}
-        <Route element={<AppLayout />}>
+        <Route element={<RequireAuth />}>
           {/* Dashboard */}
           <Route path="/dashboard" element={<Dashboard />} />
 
