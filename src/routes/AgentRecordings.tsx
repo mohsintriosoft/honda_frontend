@@ -5,8 +5,6 @@ import { PageHeader } from "@/components/layout/AppShell";
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,7 +36,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-import { TranscriptViewer, SentimentStrip } from "@/components/agents/TranscriptViewer";
+import { TranscriptViewer } from "@/components/agents/TranscriptViewer";
 import { ModuleBadge } from "@/components/agents/ModuleBadge";
 
 import {
