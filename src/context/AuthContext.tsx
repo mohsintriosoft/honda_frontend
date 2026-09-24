@@ -14,13 +14,13 @@ import {
     clearAuthSession as clearPersistedAuthSession,
     isAuthenticated as hasPersistedToken,
     getAccessToken,
-    APL_LINK,
+    get_profile,
 } from "@/components/ServiceConnection/serviceconnection";
 
 // GET /profile/ — added alongside /users/ in the auth/permissions plan
 // (§2), require_auth only. Not exported from serviceconnection.js yet
 // since nothing outside this context needs it directly.
-const get_profile = APL_LINK + "api/profile/";
+
 
 // Matches _serialize_staff_user() in views_admin.py.
 export type StaffUser = {

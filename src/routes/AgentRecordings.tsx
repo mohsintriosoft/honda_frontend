@@ -66,8 +66,7 @@ import {
   get_recording_detail,
   server_get_data,
   server_download_file,
-  APL_LINK,
-  AUDIO_BASE_URL,
+  getAudioUrl,
 } from "@/components/ServiceConnection/serviceconnection";
 
 import {
@@ -201,16 +200,6 @@ function toRecordingRow(r: Recording): RecordingRow {
     llmCost: null,
     timeIst: null,
   };
-}
-
-// Audio endpoint is behind @require_auth, so it must be fetched with the
-// Bearer header (axios) and played from a blob URL -- a plain <audio src>
-// can't send the Authorization header and always gets 401.
-function getAudioUrl(r: Recording): string {
-  if (/^https?:\/\//i.test(r.file)) {
-    return r.file;
-  }
-  return joinUrl(APL_LINK, `/api/recordings/${r.id}/audio/`) + "/";
 }
 
 function mapRecordingApiToRecording(session: any): RecordingRow {

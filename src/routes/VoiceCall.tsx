@@ -25,7 +25,6 @@ import {
   get_recording_detail,
   server_get_data,
   server_download_file,
-  APL_LINK,
 } from "@/components/ServiceConnection/serviceconnection";
 
 /* -------------------------------------------------------------------------- */
@@ -41,12 +40,7 @@ function joinUrl(...parts: string[]): string {
 
 // recording_audio is behind @require_auth, so it's fetched with the Bearer
 // header and played from a blob URL. Empty when the call has no file.
-function getAudioUrl(session: any): string {
-  if (!session || (!session.recording_mixed && !session.recording_stereo)) {
-    return "";
-  }
-  return joinUrl(APL_LINK, `/api/recordings/${session.id}/audio/`) + "/";
-}
+
 
 interface TranscriptTurn {
   who: "ai" | "customer";

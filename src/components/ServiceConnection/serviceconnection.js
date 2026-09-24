@@ -197,6 +197,16 @@ const post_provider_settings = APL_LINK + "api/provider-settings/update/";
 // Health
 const get_provider_health = APL_LINK + "api/provider-health/";
 
+
+const get_users = APL_LINK + "api/users/";
+const post_user = APL_LINK + "api/users/";
+const patch_user = (id: number) => `${APL_LINK}api/users/${id}/`;
+const get_roles = APL_LINK + "api/roles/";
+const post_role = APL_LINK + "api/roles/";
+const role_url = (id: number) => `${APL_LINK}api/roles/${id}/`;
+const get_profile = APL_LINK + "api/profile/";
+const get_branches = APL_LINK + "api/branches/";
+
 /* =========================================================
    COMMON CONFIG
 ========================================================= */
@@ -855,6 +865,19 @@ function getListenWsUrl(sessionId) {
   const token = encodeURIComponent(getAuthToken() ?? "");
   return `${wsBase}api/voice/ws/listen/${sessionId}/?token=${token}`;
 }
+
+
+function getListenWsUrl2(sessionId) {
+  const wsBase = APL_LINK.replace(/^http/i, "ws");
+  return `${wsBase}api/voice/ws/listen/${sessionId}/`;
+}
+
+function getAudioUrl(session) {
+  if (!session || (!session.recording_mixed && !session.recording_stereo)) {
+    return "";
+  }
+  return joinUrl(APL_LINK, `/api/recordings/${session.id}/audio/`) + "/";
+}
 /* =========================================================
    EXPORT
 ========================================================= */
@@ -980,6 +1003,16 @@ export {
   server_upload_file,
   server_download_file,
   getListenWsUrl,
+  getListenWsUrl2,
   // Axios Instance
   apiClient,
+  get_users,
+post_user,
+patch_user,
+get_roles,
+post_role,
+role_url,
+get_profile,
+get_branches,
+getAudioUrl,
 };

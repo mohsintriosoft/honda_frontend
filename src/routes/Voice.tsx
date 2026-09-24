@@ -53,7 +53,7 @@ import {
   server_get_data,
   server_post_json,
   post_plivo_end_call,
-  APL_LINK,
+  getListenWsUrl2,
 } from "@/components/ServiceConnection/serviceconnection";
 
 /* -------------------------------------------------------------------------- */
@@ -171,15 +171,6 @@ export default function VoicePage() {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Real-time call monitoring                                                  */
-/* -------------------------------------------------------------------------- */
-
-function getListenWsUrl(sessionId: string): string {
-  const wsBase = APL_LINK.replace(/^http/i, "ws");
-  return `${wsBase}api/voice/ws/listen/${sessionId}/`;
-}
-
 function scheduleLivePcmFrame(
   ctx: AudioContext,
   cursors: { user: number; bot: number },
@@ -235,7 +226,7 @@ function useLiveAudioListener(sessionId: string) {
     ctxRef.current = ctx;
     cursorsRef.current = { user: ctx.currentTime, bot: ctx.currentTime };
 
-    const ws = new WebSocket(getListenWsUrl(sessionId));
+    const ws = new WebSocket(getListenWsUrl2(sessionId));
     wsRef.current = ws;
 
     ws.onopen = () => {
