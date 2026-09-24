@@ -10,6 +10,8 @@ import Dashboard from "./routes/_app.dashboard";
 import Analytics from "./routes/_app.analytics.index";
 import Callbacks from "./routes/_app.callbacks.index";
 import Integrations from "./routes/_app.integrations.index";
+import Settings from "./routes/_app.settings.index";
+import Users from "./routes/_app.users.index";
 
 
 
@@ -41,8 +43,8 @@ import SegmentDetails from "./routes/SegmentDetails";
 
 
 
-import Settings from "./routes/_app.settings.index";
-import Users from "./routes/_app.users.index";
+
+
 
 import Voice from "./routes/_app.voice.index";
 import VoiceCall from "./routes/_app.voice.$callId";

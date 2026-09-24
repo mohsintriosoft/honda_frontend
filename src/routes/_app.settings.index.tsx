@@ -6,21 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Loader2, CheckCircle2 } from "lucide-react";
-import {
-  server_get_data,
-  server_post_json,
-  get_provider_settings,
-  post_provider_settings,
-} from "@/components/ServiceConnection/serviceconnection";
-import { handleError } from "@/components/CommonJquery/CommonJquery";
+
 
 type Choice = { value: string; label: string };
 
