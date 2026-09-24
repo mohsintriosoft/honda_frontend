@@ -69,7 +69,6 @@ function saveErrorMessage(err: any): string {
 export default function BranchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const isNew = !id;
-  const canEdit = hasPerm("branches.manage");
 
   const [existing, setExisting] = useState<Branch | undefined>(undefined);
   const [loading, setLoading] = useState(!isNew);
@@ -148,6 +147,8 @@ export default function BranchDetailPage() {
 }
 
 function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: boolean }) {
+  const canEdit = hasPerm("branches.manage");
+
   const [branch, setBranch] = useState<DraftBranch>(draft);
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
@@ -165,7 +166,10 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
       closingTime: "18:00",
     };
 
-  const setDaySchedule = (day: number, patch: Partial<{ isOpen: boolean; openingTime: string; closingTime: string }>) => {
+  const setDaySchedule = (
+    day: number,
+    patch: Partial<{ isOpen: boolean; openingTime: string; closingTime: string }>,
+  ) => {
     const current = branch.weeklySchedule ?? [];
     const existing = getDaySchedule(day);
     const updated = { ...existing, ...patch };
@@ -270,267 +274,271 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
           {/* DETAILS */}
           <TabsContent value="details" className="mt-4">
             <fieldset disabled={!canEdit} className="contents">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Branch details</CardTitle>
-              </CardHeader>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Branch details</CardTitle>
+                </CardHeader>
 
-              <CardContent className="grid gap-6 lg:grid-cols-2">
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="name">Name</Label>
-                    <Input
-                      id="name"
-                      placeholder="e.g. Kolar Road"
-                      value={branch.name}
-                      onChange={(e) => set("name", e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="code">Code</Label>
-                    <Input
-                      id="code"
-                      placeholder="e.g. KOLAR"
-                      value={branch.code}
-                      onChange={(e) => set("code", e.target.value.toUpperCase())}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="city">City</Label>
-                    <Input
-                      id="city"
-                      placeholder="e.g. Bhopal"
-                      value={branch.city}
-                      onChange={(e) => set("city", e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="address">Address</Label>
-                    <Textarea
-                      id="address"
-                      rows={3}
-                      placeholder="Full postal address"
-                      value={branch.address}
-                      onChange={(e) => set("address", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-4">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="phone">Branch phone</Label>
-                    <Input
-                      id="phone"
-                      placeholder="Landline / front desk"
-                      value={branch.phone}
-                      onChange={(e) => set("phone", e.target.value)}
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="advisorPhone">Advisor phone</Label>
-                    <Input
-                      id="advisorPhone"
-                      placeholder="Escalation calls transfer here"
-                      value={branch.advisorPhone}
-                      onChange={(e) => set("advisorPhone", e.target.value)}
-                    />
-                  </div>
-
-                  <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
-                    <div>
-                      <div className="text-sm font-medium">Active</div>
-                      <div className="text-xs text-muted-foreground">
-                        Inactive branches stop taking new slot bookings.
-                      </div>
+                <CardContent className="grid gap-6 lg:grid-cols-2">
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="name">Name</Label>
+                      <Input
+                        id="name"
+                        placeholder="e.g. Kolar Road"
+                        value={branch.name}
+                        onChange={(e) => set("name", e.target.value)}
+                      />
                     </div>
 
-                    <Switch
-                      checked={branch.isActive}
-                      onCheckedChange={(checked) => set("isActive", checked)}
-                    />
+                    <div className="space-y-1.5">
+                      <Label htmlFor="code">Code</Label>
+                      <Input
+                        id="code"
+                        placeholder="e.g. KOLAR"
+                        value={branch.code}
+                        onChange={(e) => set("code", e.target.value.toUpperCase())}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="city">City</Label>
+                      <Input
+                        id="city"
+                        placeholder="e.g. Bhopal"
+                        value={branch.city}
+                        onChange={(e) => set("city", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="address">Address</Label>
+                      <Textarea
+                        id="address"
+                        rows={3}
+                        placeholder="Full postal address"
+                        value={branch.address}
+                        onChange={(e) => set("address", e.target.value)}
+                      />
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="phone">Branch phone</Label>
+                      <Input
+                        id="phone"
+                        placeholder="Landline / front desk"
+                        value={branch.phone}
+                        onChange={(e) => set("phone", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="advisorPhone">Advisor phone</Label>
+                      <Input
+                        id="advisorPhone"
+                        placeholder="Escalation calls transfer here"
+                        value={branch.advisorPhone}
+                        onChange={(e) => set("advisorPhone", e.target.value)}
+                      />
+                    </div>
+
+                    <div className="flex items-center justify-between rounded-md border px-3 py-2.5">
+                      <div>
+                        <div className="text-sm font-medium">Active</div>
+                        <div className="text-xs text-muted-foreground">
+                          Inactive branches stop taking new slot bookings.
+                        </div>
+                      </div>
+
+                      <Switch
+                        checked={branch.isActive}
+                        onCheckedChange={(checked) => set("isActive", checked)}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </fieldset>
           </TabsContent>
 
           {/* TIMING */}
           <TabsContent value="timing" className="mt-4">
             <fieldset disabled={!canEdit} className="space-y-4 min-w-0">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Weekly schedule</CardTitle>
-                <p className="text-xs text-muted-foreground">
-                  Each day can have its own opening/closing time — flip a day off to skip bookings
-                  for it entirely.
-                </p>
-              </CardHeader>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Weekly schedule</CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Each day can have its own opening/closing time — flip a day off to skip
+                    bookings for it entirely.
+                  </p>
+                </CardHeader>
 
-              <CardContent className="p-0">
-                <div className="divide-y">
-                  {WEEKDAY_LABELS.map((label, day) => {
-                    const daySchedule = getDaySchedule(day);
-                    const off = !daySchedule.isOpen;
+                <CardContent className="p-0">
+                  <div className="divide-y">
+                    {WEEKDAY_LABELS.map((label, day) => {
+                      const daySchedule = getDaySchedule(day);
+                      const off = !daySchedule.isOpen;
 
-                    return (
-                      <div
-                        key={label}
-                        className="flex flex-wrap items-center gap-3 px-4 py-3 sm:gap-4"
-                      >
-                        <span className="w-10 shrink-0 text-sm font-medium text-primary">
-                          {label}
-                        </span>
-
-                        {off ? (
-                          <span className="w-32 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                            off
+                      return (
+                        <div
+                          key={label}
+                          className="flex flex-wrap items-center gap-3 px-4 py-3 sm:gap-4"
+                        >
+                          <span className="w-10 shrink-0 text-sm font-medium text-primary">
+                            {label}
                           </span>
-                        ) : (
-                          <Input
-                            type="time"
-                            className="w-32"
-                            value={daySchedule.openingTime ?? "09:00"}
-                            onChange={(e) => setDaySchedule(day, { openingTime: e.target.value })}
+
+                          {off ? (
+                            <span className="w-32 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                              off
+                            </span>
+                          ) : (
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={daySchedule.openingTime ?? "09:00"}
+                              onChange={(e) =>
+                                setDaySchedule(day, { openingTime: e.target.value })
+                              }
+                            />
+                          )}
+
+                          <span className="text-sm text-muted-foreground">to</span>
+
+                          {off ? (
+                            <span className="w-32 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                              off
+                            </span>
+                          ) : (
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={daySchedule.closingTime ?? "18:00"}
+                              onChange={(e) =>
+                                setDaySchedule(day, { closingTime: e.target.value })
+                              }
+                            />
+                          )}
+
+                          <div className="flex-1" />
+
+                          <Switch
+                            checked={!off}
+                            onCheckedChange={() => toggleDayOpen(day)}
+                            aria-label={`${label} ${off ? "closed" : "open"}`}
                           />
-                        )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
 
-                        <span className="text-sm text-muted-foreground">to</span>
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Slot configuration</CardTitle>
+                </CardHeader>
 
-                        {off ? (
-                          <span className="w-32 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                            off
-                          </span>
-                        ) : (
-                          <Input
-                            type="time"
-                            className="w-32"
-                            value={daySchedule.closingTime ?? "18:00"}
-                            onChange={(e) => setDaySchedule(day, { closingTime: e.target.value })}
-                          />
-                        )}
+                <CardContent className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="slotDuration">Slot duration (minutes)</Label>
+                    <Input
+                      id="slotDuration"
+                      type="number"
+                      min={15}
+                      step={15}
+                      value={branch.slotDurationMinutes}
+                      onChange={(e) => set("slotDurationMinutes", Number(e.target.value))}
+                    />
+                  </div>
 
-                        <div className="flex-1" />
-
-                        <Switch
-                          checked={!off}
-                          onCheckedChange={() => toggleDayOpen(day)}
-                          aria-label={`${label} ${off ? "closed" : "open"}`}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Slot configuration</CardTitle>
-              </CardHeader>
-
-              <CardContent className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="slotDuration">Slot duration (minutes)</Label>
-                  <Input
-                    id="slotDuration"
-                    type="number"
-                    min={15}
-                    step={15}
-                    value={branch.slotDurationMinutes}
-                    onChange={(e) => set("slotDurationMinutes", Number(e.target.value))}
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="maxPerSlot">Max customers per slot</Label>
-                  <Input
-                    id="maxPerSlot"
-                    type="number"
-                    min={1}
-                    value={branch.maxPerSlot}
-                    onChange={(e) => set("maxPerSlot", Number(e.target.value))}
-                  />
-                </div>
-              </CardContent>
-            </Card>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="maxPerSlot">Max customers per slot</Label>
+                    <Input
+                      id="maxPerSlot"
+                      type="number"
+                      min={1}
+                      value={branch.maxPerSlot}
+                      onChange={(e) => set("maxPerSlot", Number(e.target.value))}
+                    />
+                  </div>
+                </CardContent>
+              </Card>
             </fieldset>
           </TabsContent>
 
           {/* HOLIDAYS */}
           <TabsContent value="holidays" className="mt-4">
             <fieldset disabled={!canEdit} className="contents">
-            <Card>
-              <CardHeader className="flex-row items-center justify-between space-y-0">
-                <CardTitle className="text-base">Holidays</CardTitle>
+              <Card>
+                <CardHeader className="flex-row items-center justify-between space-y-0">
+                  <CardTitle className="text-base">Holidays</CardTitle>
 
-                {canEdit && (
-                  <Button variant="outline" size="sm" onClick={addHoliday}>
-                    <Plus className="size-4" />
-                    Add holiday
-                  </Button>
-                )}
-              </CardHeader>
+                  {canEdit && (
+                    <Button variant="outline" size="sm" onClick={addHoliday}>
+                      <Plus className="size-4" />
+                      Add holiday
+                    </Button>
+                  )}
+                </CardHeader>
 
-              <CardContent className="space-y-3">
-                {(branch.holidays ?? []).length === 0 && (
-                  <p className="text-sm text-muted-foreground">
-                    No one-off holidays configured for this branch yet.
-                  </p>
-                )}
+                <CardContent className="space-y-3">
+                  {(branch.holidays ?? []).length === 0 && (
+                    <p className="text-sm text-muted-foreground">
+                      No one-off holidays configured for this branch yet.
+                    </p>
+                  )}
 
-                {(branch.holidays ?? []).map((h) => (
-                  <div
-                    key={h.id}
-                    className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2.5"
-                  >
-                    <Input
-                      type="date"
-                      className="w-40"
-                      value={h.date}
-                      onChange={(e) => updateHoliday(h.id, { date: e.target.value })}
-                    />
+                  {(branch.holidays ?? []).map((h) => (
+                    <div
+                      key={h.id}
+                      className="flex flex-wrap items-center gap-3 rounded-md border px-3 py-2.5"
+                    >
+                      <Input
+                        type="date"
+                        className="w-40"
+                        value={h.date}
+                        onChange={(e) => updateHoliday(h.id, { date: e.target.value })}
+                      />
 
-                    <Input
-                      className="flex-1 min-w-40"
-                      placeholder="Reason, e.g. Diwali"
-                      value={h.reason}
-                      onChange={(e) => updateHoliday(h.id, { reason: e.target.value })}
-                    />
+                      <Input
+                        className="flex-1 min-w-40"
+                        placeholder="Reason, e.g. Diwali"
+                        value={h.reason}
+                        onChange={(e) => updateHoliday(h.id, { reason: e.target.value })}
+                      />
 
-                    {canEdit && (
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeHoliday(h.id)}
-                        aria-label="Remove holiday"
-                      >
-                        <Trash2 className="size-4" />
-                      </Button>
-                    )}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => removeHoliday(h.id)}
+                          aria-label="Remove holiday"
+                        >
+                          <Trash2 className="size-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
             </fieldset>
           </TabsContent>
         </Tabs>
 
         {canEdit && (
-        <div className="flex items-center gap-3">
-          <Button size="sm" onClick={handleSave} disabled={saving}>
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-            {isNew ? "Create branch" : "Save changes"}
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={handleSave} disabled={saving}>
+              {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
+              {isNew ? "Create branch" : "Save changes"}
+            </Button>
 
-          {savedNotice && <span className="text-xs text-muted-foreground">Saved.</span>}
+            {savedNotice && <span className="text-xs text-muted-foreground">Saved.</span>}
 
-          {saveError && <span className="text-xs text-destructive">{saveError}</span>}
-        </div>
+            {saveError && <span className="text-xs text-destructive">{saveError}</span>}
+          </div>
         )}
       </div>
     </>
