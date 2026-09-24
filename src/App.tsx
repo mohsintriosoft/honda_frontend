@@ -29,6 +29,7 @@ import Imports from "./routes/Imports";
 import ImportDetails from "./routes/ImportDetails";
 import Intents from "./routes/Intents";
 import IntentDetails from "./routes/IntentDetails";
+import KnowledgeGlobal from "./routes/KnowledgeGlobal";
 
 
 
@@ -37,11 +38,6 @@ import IntentDetails from "./routes/IntentDetails";
 
 
 
-
-
-
-
-import KnowledgeGlobal from "./routes/_app.knowledge.index";
 
 import Segments from "./routes/_app.segments.index";
 import SegmentDetails from "./routes/_app.segments.$id";
