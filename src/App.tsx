@@ -7,18 +7,19 @@ import { AuthProvider } from "@/context/AuthContext";
 import Home from "./routes/index";
 import Login from "./routes/login";
 import Dashboard from "./routes/_app.dashboard";
+import Analytics from "./routes/_app.analytics.index";
+import Callbacks from "./routes/_app.callbacks.index";
+
+
+
 
 import Agents from "./routes/Agents";
 import AgentDetails from "./routes/AgentDetails";
 import AgentRecordings from "./routes/AgentRecordings";
-
-import Analytics from "./routes/_app.analytics.index";
 import Appointments from "./routes/Appointments";
 
-import Callbacks from "./routes/_app.callbacks.index";
-
-import Branches from "./routes/_app.branches.index";
-import BranchDetails from "./routes/_app.branches.$id";
+import Branches from "./routes/Branches";
+import BranchDetails from "./routes/BranchDetails";
 
 import Campaigns from "./routes/_app.campaigns.index";
 import CampaignDetails from "./routes/_app.campaigns.$id";

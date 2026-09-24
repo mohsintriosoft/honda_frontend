@@ -131,6 +131,7 @@ const API_ERROR_TEXT: Record<string, string> = {
   slot_taken: "That slot is already full.",
   branch_closed_weekly_off: "The branch is closed on this day (weekly off).",
   branch_closed_holiday: "The branch is closed on this day (holiday).",
+  branch_closed_inactive: "This branch is inactive and isn't taking bookings.",
   invalid_slot_time: "Pick a time that matches the branch's slot timings.",
   slot_blocked: "That time is blocked for bookings.",
   "branch not found": "Branch not found.",
