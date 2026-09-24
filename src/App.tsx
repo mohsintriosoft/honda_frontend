@@ -21,14 +21,13 @@ import Branches from "./routes/Branches";
 import BranchDetails from "./routes/BranchDetails";
 import Campaigns from "./routes/Campaigns";
 import CampaignDetails from "./routes/CampaignDetails";
-
-
-
 import Customers from "./routes/Customers";
 import CustomerDetails from "./routes/CustomerDetails";
+import Fillers from "./routes/Fillers";
+import FillerDetail from "./routes/FillerDetail";
 
-import Fillers from "./routes/_app.fillers.index";
-import FillerDetail from "./routes/_app.fillers.$id";
+
+
 
 import Imports from "./routes/_app.imports.index";
 import ImportDetails from "./routes/_app.imports.$id";
