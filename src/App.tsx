@@ -1,11 +1,20 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from "react-router-dom";
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  Link,
+  useLocation,
+} from "react-router-dom";
 
 import { AppShell } from "@/components/layout/AppShell";
-import { isAuthenticated } from "@/components/ServiceConnection/serviceconnection";
+import {
+  isAuthenticated,
+  clearAuthSession,
+} from "@/components/ServiceConnection/serviceconnection";
 import { AuthProvider } from "@/context/AuthContext";
-
-
-
+import { canAccessPath, getPermissions, landingPath } from "@/lib/permissions";
 
 import Home from "./routes/index";
 import Agents from "./routes/Agents";
@@ -34,43 +43,67 @@ import Callbacks from "./routes/Callbacks";
 import Login from "./routes/login";
 import Dashboard from "./routes/Dashboard";
 
-
-
-
-
-
-
-
-
-
-
-
 import Users from "./routes/_app.users.index";
 import OmHondaChunks from "./routes/omhondachunks";
 import WhatsApp from "./routes/_app.whatsapp.index";
 import Settings from "./routes/_app.settings.index";
 import Integrations from "./routes/_app.integrations.index";
 import Analytics from "./routes/_app.analytics.index";
-function AppLayout() {
+
+function AppLayout({ forbidden = false }: { forbidden?: boolean }) {
   return (
     <AuthProvider>
-      <AppShell>
-        <Outlet />
-      </AppShell>
+      <AppShell>{forbidden ? <Forbidden /> : <Outlet />}</AppShell>
     </AuthProvider>
   );
 }
 
-// Gates every route under AppLayout behind a session. isAuthenticated()
-// is a plain synchronous localStorage read (no network call), so this
-// redirects instantly with no flash before AuthProvider's own
-// background GET /me/ refresh (inside AppLayout) even starts.
+// Gates every route under AppLayout behind a session AND the role's rights.
+// Everything here is a synchronous localStorage read -- no flash.
 function RequireAuth() {
+  const { pathname } = useLocation();
+
   if (!isAuthenticated()) {
     return <Navigate to="/login" replace />;
   }
 
+  // Session saved before rights existed -> force a fresh login so the
+  // user object carries `permissions`.
+  if (!getPermissions()) {
+    clearAuthSession();
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!canAccessPath(pathname)) {
+    // Login lands on /dashboard -- send roles without it to their own home.
+    const home = landingPath();
+    if (pathname === "/dashboard" && home !== "/dashboard") {
+      return <Navigate to={home} replace />;
+    }
+    return <AppLayout forbidden />;
+  }
+
   return <AppLayout />;
+}
+
+function Forbidden() {
+  const home = landingPath();
+  return (
+    <div className="min-h-[70vh] flex items-center justify-center px-4">
+      <div className="text-center max-w-sm">
+        <h1 className="text-5xl font-bold">403</h1>
+        <p className="mt-2 text-muted-foreground">
+          Your role doesn't have access to this page. Ask your admin to add the right to your role.
+        </p>
+        <Link
+          to={home}
+          className="inline-flex mt-5 px-4 py-2 rounded-md bg-primary text-primary-foreground"
+        >
+          Go to home
+        </Link>
+      </div>
+    </div>
+  );
 }
 
 function NotFound() {
@@ -112,97 +145,67 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
 
           {/* ================= AGENTS ================= */}
-
           <Route path="/agents" element={<Agents />} />
-
           <Route path="/agents/recordings" element={<AgentRecordings />} />
-
           <Route path="/agents/:agentId" element={<AgentDetails />} />
 
           {/* ================= ANALYTICS ================= */}
-
           <Route path="/analytics" element={<Analytics />} />
 
           {/* ================= APPOINTMENTS ================= */}
-
           <Route path="/appointments" element={<Appointments />} />
 
           {/* ================= CALLBACKS ================= */}
-
           <Route path="/callbacks" element={<Callbacks />} />
 
           {/* ================= BRANCHES ================= */}
-
           <Route path="/branches" element={<Branches />} />
-
           <Route path="/branches/:id" element={<BranchDetails />} />
 
           {/* ================= CAMPAIGNS ================= */}
-
           <Route path="/campaigns" element={<Campaigns />} />
-
-
           <Route path="/campaigns/:id" element={<CampaignDetails />} />
 
           {/* ================= CUSTOMERS ================= */}
-
           <Route path="/customers" element={<Customers />} />
-
           <Route path="/customers/:id" element={<CustomerDetails />} />
 
           {/* ================= FILLERS ================= */}
-
           <Route path="/fillers" element={<Fillers />} />
-
           <Route path="/fillers/:code" element={<FillerDetail />} />
 
           {/* ================= DATA IMPORT ================= */}
-
           <Route path="/imports" element={<Imports />} />
-
           <Route path="/imports/:id" element={<ImportDetails />} />
 
           {/* ================= INTEGRATIONS ================= */}
-
           <Route path="/integrations" element={<Integrations />} />
 
           {/* ================= INTENTS ================= */}
-
           <Route path="/intents" element={<Intents />} />
-
           <Route path="/intents/:code" element={<IntentDetails />} />
 
-
           {/* ================= KNOWLEDGE ================= */}
-
           <Route path="/knowledge" element={<KnowledgeGlobal />} />
 
           {/* ================= SEGMENTS ================= */}
-
           <Route path="/segments" element={<Segments />} />
-
           <Route path="/segments/:id" element={<SegmentDetails />} />
 
           {/* ================= SETTINGS ================= */}
-
           <Route path="/settings" element={<Settings />} />
 
           {/* ================= USERS ================= */}
-
           <Route path="/users" element={<Users />} />
 
           {/* ================= VOICE ================= */}
-
           <Route path="/voice" element={<Voice />} />
-
           <Route path="/voice/:callId" element={<VoiceCall />} />
 
           {/* ================= WHATSAPP ================= */}
-
           <Route path="/whatsapp" element={<WhatsApp />} />
 
           {/* ================= HEALTH ================= */}
-
           <Route path="/health" element={<Health />} />
         </Route>
 
