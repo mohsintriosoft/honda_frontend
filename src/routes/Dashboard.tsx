@@ -33,9 +33,6 @@ import {
 
 import { formatNumber, formatPercent, formatRelative } from "@/lib/format";
 
-// NOTE: adjust this import path to wherever serviceconnection.js actually
-// lives in the project — it wasn't included in the files I was given to
-// edit, so I don't know its real path/alias.
 import {
   get_dashboard_summary,
   get_campaigns,
@@ -78,6 +75,16 @@ const EMPTY_KPIS: DashboardKpis = {
   workshopConversion: 0,
 };
 
+const UPCOMING_DAYS = 7;
+
+// Local calendar date (IST in the browser), never UTC.
+function localIsoDate(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -96,45 +103,53 @@ function DashboardPage() {
       setLoading(true);
       setError(null);
 
-      try {
-        const [summaryRes, campaignsRes, callsRes, appointmentsRes, segmentsRes] =
-          await Promise.all([
-            server_get_data(get_dashboard_summary, { trend_days: 14 }),
-            server_get_data(get_campaigns),
-            server_get_data(get_recordings, { status: LIVE_CALL_STATUSES, page_size: 5 }),
-            server_get_data(get_appointments),
-            server_get_data(get_segments),
-          ]);
+      const today = new Date();
+      const todayIso = localIsoDate(today);
+      const until = new Date(today);
+      until.setDate(until.getDate() + UPCOMING_DAYS);
 
-        if (cancelled) return;
+      // Each widget loads independently -- one failing (e.g. a 403 for this
+      // role) must not blank the whole dashboard.
+      const [summaryRes, campaignsRes, callsRes, appointmentsRes, segmentsRes] =
+        await Promise.allSettled([
+          server_get_data(get_dashboard_summary, { trend_days: 14 }),
+          server_get_data(get_campaigns),
+          server_get_data(get_recordings, { status: LIVE_CALL_STATUSES, page_size: 5 }),
+          server_get_data(get_appointments, { start: todayIso, end: localIsoDate(until) }),
+          server_get_data(get_segments),
+        ]);
 
-        setKpis(summaryRes?.kpis ?? EMPTY_KPIS);
-        setCallTrend(summaryRes?.call_trend ?? []);
+      if (cancelled) return;
 
-        setLiveCampaigns(
-          (campaignsRes?.campaigns ?? []).filter((c: any) => c.status === "live"),
-        );
+      const value = (r: PromiseSettledResult<any>) => (r.status === "fulfilled" ? r.value : null);
 
-        // recordings() is paginated (DRF PageNumberPagination) -> { results: [...] }
-        setLiveCalls((callsRes?.results ?? []).slice(0, 5));
+      const summary = value(summaryRes);
+      setKpis(summary?.kpis ?? EMPTY_KPIS);
+      setCallTrend(summary?.call_trend ?? []);
 
-        const todayIso = new Date().toISOString().slice(0, 10);
-        setUpcoming(
-          (appointmentsRes?.appointments ?? [])
-            .filter((a: any) => a.status !== "cancelled" && a.slotDate >= todayIso)
-            .sort((a: any, b: any) =>
-              `${a.slotDate}T${a.slotTime}`.localeCompare(`${b.slotDate}T${b.slotTime}`),
-            )
-            .slice(0, 6),
-        );
+      setLiveCampaigns(
+        (value(campaignsRes)?.campaigns ?? []).filter((c: any) => c.status === "live"),
+      );
 
-        setSegments(segmentsRes?.segments ?? []);
-      } catch (err) {
-        console.error("Dashboard load failed:", err);
-        if (!cancelled) setError("Couldn't load dashboard data. Try refreshing the page.");
-      } finally {
-        if (!cancelled) setLoading(false);
+      setLiveCalls((value(callsRes)?.results ?? []).slice(0, 5));
+
+      setUpcoming(
+        (value(appointmentsRes)?.appointments ?? [])
+          .filter((a: any) => a.status !== "cancelled" && a.slotDate >= todayIso)
+          .sort((a: any, b: any) =>
+            `${a.slotDate}T${a.slotTime}`.localeCompare(`${b.slotDate}T${b.slotTime}`),
+          )
+          .slice(0, 6),
+      );
+
+      setSegments(value(segmentsRes)?.segments ?? []);
+
+      if (summaryRes.status === "rejected") {
+        console.error("Dashboard summary failed:", summaryRes.reason);
+        setError("Couldn't load dashboard numbers. Try refreshing the page.");
       }
+
+      setLoading(false);
     }
 
     load();
@@ -232,8 +247,7 @@ function DashboardPage() {
           />
         </div>
 
-        {/* Chart — full width now that AI Recommendations (no backend
-            equivalent) has been removed from the dashboard */}
+        {/* Chart */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
@@ -327,7 +341,6 @@ function DashboardPage() {
 
         {/* Live campaigns + live calls */}
         <div className="grid gap-4 lg:grid-cols-2">
-          {/* Live campaigns */}
           <Card>
             <CardHeader className="flex-row items-center justify-between">
               <CardTitle className="text-base font-display">Today's live campaigns</CardTitle>
@@ -341,7 +354,7 @@ function DashboardPage() {
             </CardHeader>
 
             <CardContent className="space-y-2">
-              {liveCampaigns.length === 0 && (
+              {!loading && liveCampaigns.length === 0 && (
                 <div className="text-sm text-muted-foreground py-4">
                   No campaigns are live right now.
                 </div>
@@ -368,12 +381,17 @@ function DashboardPage() {
 
                   <div className="mt-3 grid grid-cols-4 gap-2">
                     <MetricTile label="Connected" value={c.totals?.connected ?? 0} />
-
-                    <MetricTile label="Interested" value={c.totals?.interested ?? 0} tone="success" />
-
+                    <MetricTile
+                      label="Interested"
+                      value={c.totals?.interested ?? 0}
+                      tone="success"
+                    />
                     <MetricTile label="Booked" value={c.totals?.booked ?? 0} tone="info" />
-
-                    <MetricTile label="Escalated" value={c.totals?.escalated ?? 0} tone="destructive" />
+                    <MetricTile
+                      label="Escalated"
+                      value={c.totals?.escalated ?? 0}
+                      tone="destructive"
+                    />
                   </div>
                 </Link>
               ))}
@@ -381,7 +399,6 @@ function DashboardPage() {
           </Card>
 
           <div className="space-y-4">
-            {/* Live calls */}
             <Card>
               <CardHeader className="flex-row items-center justify-between">
                 <CardTitle className="text-base font-display flex items-center gap-2">
@@ -398,7 +415,7 @@ function DashboardPage() {
               </CardHeader>
 
               <CardContent className="space-y-2">
-                {liveCalls.length === 0 && (
+                {!loading && liveCalls.length === 0 && (
                   <div className="text-sm text-muted-foreground py-4">No live calls right now.</div>
                 )}
 
@@ -430,7 +447,6 @@ function DashboardPage() {
               </CardContent>
             </Card>
 
-            {/* Upcoming appointments */}
             <Card>
               <CardHeader className="flex-row items-center justify-between">
                 <CardTitle className="text-base font-display">Upcoming appointments</CardTitle>
@@ -444,39 +460,40 @@ function DashboardPage() {
               </CardHeader>
 
               <CardContent className="space-y-2">
-                {upcoming.length === 0 && (
+                {!loading && upcoming.length === 0 && (
                   <div className="text-sm text-muted-foreground py-4">
                     No upcoming appointments.
                   </div>
                 )}
 
-                {upcoming.map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 rounded-md border p-2.5">
-                    <div className="text-center min-w-[44px]">
-                      <div className="text-[10px] uppercase text-muted-foreground">
-                        {new Date(a.slotDate).toLocaleString("en", {
-                          month: "short",
-                        })}
+                {upcoming.map((a) => {
+                  const slotDay = new Date(`${a.slotDate}T00:00:00`);
+                  return (
+                    <div key={a.id} className="flex items-center gap-3 rounded-md border p-2.5">
+                      <div className="text-center min-w-[44px]">
+                        <div className="text-[10px] uppercase text-muted-foreground">
+                          {slotDay.toLocaleString("en", { month: "short" })}
+                        </div>
+
+                        <div className="text-lg font-semibold font-display leading-none">
+                          {slotDay.getDate()}
+                        </div>
                       </div>
 
-                      <div className="text-lg font-semibold font-display leading-none">
-                        {new Date(a.slotDate).getDate()}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">{a.customerName}</div>
+
+                        <div className="text-xs text-muted-foreground truncate">
+                          {a.type} • {a.advisor ?? "Unassigned"}
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-muted-foreground" suppressHydrationWarning>
+                        {formatRelative(`${a.slotDate}T${a.slotTime}`)}
                       </div>
                     </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium truncate">{a.customerName}</div>
-
-                      <div className="text-xs text-muted-foreground truncate">
-                        {a.type} • {a.advisor ?? "Unassigned"}
-                      </div>
-                    </div>
-
-                    <div className="text-xs text-muted-foreground" suppressHydrationWarning>
-                      {formatRelative(`${a.slotDate}T${a.slotTime}`)}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </CardContent>
             </Card>
           </div>
@@ -494,7 +511,7 @@ function DashboardPage() {
 
           <CardContent>
             <div className="grid gap-2 grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
-              {segments.length === 0 && (
+              {!loading && segments.length === 0 && (
                 <div className="col-span-full text-sm text-muted-foreground py-4">
                   No segments configured yet.
                 </div>
@@ -502,20 +519,22 @@ function DashboardPage() {
 
               {segments.map((s) => (
                 <Link
-                  key={s.slug}
-                  to={`/segments/${s.slug}`}
+                  key={s.id}
+                  to={`/segments/${s.id}`}
                   className="rounded-lg border p-3 hover:bg-accent/50 transition-colors"
                 >
                   <div className="text-xs font-medium truncate">{s.name}</div>
 
                   <div className="mt-2 text-xl font-display font-semibold tabular-nums">
-                    {formatNumber(s.customers)}
+                    {formatNumber(s.customers ?? 0)}
                   </div>
 
                   <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>{s.due_today} today</span>
+                    <span>{s.due_today ?? 0} today</span>
 
-                    <span className="font-medium text-[color:var(--success)]">{s.conversion}%</span>
+                    <span className="font-medium text-[color:var(--success)]">
+                      {s.conversion != null ? `${s.conversion}%` : "—"}
+                    </span>
                   </div>
                 </Link>
               ))}

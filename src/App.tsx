@@ -32,10 +32,10 @@ import VoiceCall from "./routes/VoiceCall";
 import Health from "./routes/Health";
 import Callbacks from "./routes/Callbacks";
 import Login from "./routes/login";
+import Dashboard from "./routes/Dashboard";
 
 
 
-import Dashboard from "./routes/_app.dashboard";
 
 
 
