@@ -17,6 +17,7 @@ import {
   server_get_data,
   server_post_data,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 
 interface CampaignTotals {
   customers: number;
@@ -56,6 +57,7 @@ function apiErrorMessage(err: any, fallback: string) {
 }
 
 export default function CampaignsPage() {
+  const canEdit = hasPerm("campaigns.edit");
   const [campaigns, setCampaigns] = useState<ApiCampaign[]>([]);
   const [allocation, setAllocation] = useState<CampaignAllocation | null>(null);
   const [tab, setTab] = useState("all");
@@ -218,6 +220,7 @@ export default function CampaignsPage() {
                         </div>
                       </div>
 
+                      {canEdit && (
                       <Button
                         variant={c.is_active ? "outline" : "default"}
                         size="sm"
@@ -236,6 +239,7 @@ export default function CampaignsPage() {
                           </>
                         )}
                       </Button>
+                      )}
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3">

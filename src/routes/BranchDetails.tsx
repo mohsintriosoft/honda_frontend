@@ -9,6 +9,7 @@ import {
   get_branch_detail,
   patch_branch,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -64,6 +65,7 @@ function saveErrorMessage(err: any): string {
 export default function BranchDetailPage() {
   const { id } = useParams<{ id: string }>();
   const isNew = !id;
+  const canEdit = hasPerm("branches.manage");
 
   const [existing, setExisting] = useState<Branch | undefined>(undefined);
   const [loading, setLoading] = useState(!isNew);
@@ -242,6 +244,7 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
 
           {/* DETAILS */}
           <TabsContent value="details" className="mt-4">
+            <fieldset disabled={!canEdit} className="contents">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Branch details</CardTitle>
@@ -328,10 +331,12 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                 </div>
               </CardContent>
             </Card>
+            </fieldset>
           </TabsContent>
 
           {/* TIMING */}
-          <TabsContent value="timing" className="mt-4 space-y-4">
+          <TabsContent value="timing" className="mt-4">
+            <fieldset disabled={!canEdit} className="space-y-4 min-w-0">
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Weekly schedule</CardTitle>
@@ -422,18 +427,22 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                 </div>
               </CardContent>
             </Card>
+            </fieldset>
           </TabsContent>
 
           {/* HOLIDAYS */}
           <TabsContent value="holidays" className="mt-4">
+            <fieldset disabled={!canEdit} className="contents">
             <Card>
               <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle className="text-base">Holidays</CardTitle>
 
-                <Button variant="outline" size="sm" onClick={addHoliday}>
-                  <Plus className="size-4" />
-                  Add holiday
-                </Button>
+                {canEdit && (
+                  <Button variant="outline" size="sm" onClick={addHoliday}>
+                    <Plus className="size-4" />
+                    Add holiday
+                  </Button>
+                )}
               </CardHeader>
 
               <CardContent className="space-y-3">
@@ -462,21 +471,25 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                       onChange={(e) => updateHoliday(h.id, { reason: e.target.value })}
                     />
 
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => removeHoliday(h.id)}
-                      aria-label="Remove holiday"
-                    >
-                      <Trash2 className="size-4" />
-                    </Button>
+                    {canEdit && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeHoliday(h.id)}
+                        aria-label="Remove holiday"
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    )}
                   </div>
                 ))}
               </CardContent>
             </Card>
+            </fieldset>
           </TabsContent>
         </Tabs>
 
+        {canEdit && (
         <div className="flex items-center gap-3">
           <Button size="sm" onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
@@ -487,6 +500,7 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
 
           {saveError && <span className="text-xs text-destructive">{saveError}</span>}
         </div>
+        )}
       </div>
     </>
   );

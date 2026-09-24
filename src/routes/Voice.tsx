@@ -55,6 +55,7 @@ import {
   post_plivo_end_call,
   getListenWsUrl2,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
@@ -105,6 +106,7 @@ export default function VoicePage() {
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const canPlace = hasPerm("calls.place");
 
   const fetchLive = useCallback(async () => {
     try {
@@ -134,10 +136,12 @@ export default function VoicePage() {
         title="AI Voice Calls"
         description="Live monitor, recordings, transcripts, and dispositions for every AI conversation."
         actions={
-          <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-2">
-            <UserPlus className="size-4" />
-            Add / Call customer
-          </Button>
+          canPlace && (
+            <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-2">
+              <UserPlus className="size-4" />
+              Add / Call customer
+            </Button>
+          )
         }
       />
 
@@ -166,7 +170,9 @@ export default function VoicePage() {
         </Tabs>
       </div>
 
-      <AddCallCustomerDialog open={dialogOpen} onOpenChange={setDialogOpen} onCalled={fetchLive} />
+      {canPlace && (
+        <AddCallCustomerDialog open={dialogOpen} onOpenChange={setDialogOpen} onCalled={fetchLive} />
+      )}
     </>
   );
 }
@@ -273,6 +279,7 @@ function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => vo
   const name = call.customer?.name || call.customer?.phone_number || "Unknown";
 
   const [ending, setEnding] = useState(false);
+  const canPlace = hasPerm("calls.place");
   const [endError, setEndError] = useState<string | null>(null);
 
   const {
@@ -365,10 +372,12 @@ function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => vo
             {listening ? "Stop" : "Listen live"}
           </Button>
 
-          <Button size="sm" variant="destructive" onClick={handleEndCall} disabled={ending}>
-            {ending ? <Loader2 className="size-4 animate-spin" /> : <PhoneOff className="size-4" />}
-            End call
-          </Button>
+          {canPlace && (
+            <Button size="sm" variant="destructive" onClick={handleEndCall} disabled={ending}>
+              {ending ? <Loader2 className="size-4 animate-spin" /> : <PhoneOff className="size-4" />}
+              End call
+            </Button>
+          )}
         </div>
 
         {(endError || listenError) && (

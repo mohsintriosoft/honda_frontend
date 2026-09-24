@@ -43,6 +43,7 @@ import {
   post_provider_settings,
 } from "@/components/ServiceConnection/serviceconnection";
 import { handleError } from "@/components/CommonJquery/CommonJquery";
+import { hasPerm } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
@@ -301,6 +302,11 @@ function AgentDetailContent({
   const [providerSaved, setProviderSaved] = useState(false);
 
   useEffect(() => {
+    // LLM/STT provider is a system setting -- only fetch it for roles that have it.
+    if (!hasPerm("settings.manage")) {
+      setProviderLoading(false);
+      return;
+    }
     (async () => {
       setProviderLoading(true);
       setProviderError(null);

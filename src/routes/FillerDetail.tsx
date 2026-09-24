@@ -20,6 +20,7 @@ import {
   server_patch_data,
   server_delete_data,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 
 interface FillerRow {
   id: number;
@@ -67,6 +68,7 @@ function StateCard({
   block: StateBlock;
   onChanged: (state: string, fillers: FillerRow[]) => void;
 }) {
+  const canEdit = hasPerm("agents.edit");
   const [fillers, setFillers] = useState<FillerRow[]>(block.fillers);
   const [savingId, setSavingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
@@ -229,8 +231,9 @@ function StateCard({
 
             <input
               defaultValue={filler.text}
+              readOnly={!canEdit}
               disabled={deletingId === filler.id || savingId === filler.id}
-              onBlur={(e) => saveText(filler, e.target)}
+              onBlur={(e) => canEdit && saveText(filler, e.target)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   (e.target as HTMLInputElement).blur();
@@ -263,7 +266,7 @@ function StateCard({
               </div>
             ) : savingId === filler.id ? (
               <Loader2 className="size-4 animate-spin text-muted-foreground shrink-0" />
-            ) : (
+            ) : !canEdit ? null : (
               <button
                 onClick={() => setDeletingId(filler.id)}
                 className="text-muted-foreground hover:text-destructive shrink-0"
@@ -275,6 +278,7 @@ function StateCard({
           </div>
         ))}
 
+        {canEdit && (
         <div className="flex items-center gap-2 pt-1">
           <Plus className="size-3.5 text-muted-foreground shrink-0" />
 
@@ -298,6 +302,7 @@ function StateCard({
             {adding ? <Loader2 className="size-3.5 animate-spin" /> : "Add filler"}
           </Button>
         </div>
+        )}
 
         {error && <p className="text-xs text-destructive pt-1">{error}</p>}
       </div>

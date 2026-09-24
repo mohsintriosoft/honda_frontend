@@ -52,6 +52,7 @@ import {
   server_post_json,
   server_delete_data,
 } from "@/components/ServiceConnection/serviceconnection.js";
+import { hasPerm } from "@/lib/permissions";
 
 /* =========================================================
    TYPES — shape matches views_admin.py's serializers
@@ -299,6 +300,7 @@ function buildTimeRows(
 ========================================================= */
 
 export default function AppointmentsPage() {
+  const canManage = hasPerm("appointments.manage");
   const [branches, setBranches] = useState<BranchOption[]>([]);
   const [branchId, setBranchId] = useState<BranchSelection | null>(null);
   const isGlobal = branchId === GLOBAL_VALUE;
@@ -615,6 +617,7 @@ export default function AppointmentsPage() {
             className={`flex items-center justify-between gap-1 ${chipTextClass} text-amber-700 bg-amber-500/10 rounded px-1 py-0.5 ${density === "normal" ? "mb-1" : "mb-0.5"}`}
           >
             <span className="truncate">{block.reason || "Blocked"}</span>
+            {canManage && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -625,6 +628,7 @@ export default function AppointmentsPage() {
             >
               <X className="size-2.5" />
             </button>
+            )}
           </div>
         )}
 
@@ -662,7 +666,7 @@ export default function AppointmentsPage() {
           )}
         </div>
 
-        {!isGlobal && status === "open" && (
+        {canManage && !isGlobal && status === "open" && (
           <div className="absolute inset-0 hidden group-hover:flex items-center justify-center gap-1 bg-background/90">
             <Button
               size="icon"
@@ -704,6 +708,7 @@ export default function AppointmentsPage() {
         title="Appointments"
         description="Workshop bookings — auto-created by AI calls and WhatsApp confirmations."
         actions={
+          canManage && (
           <div className="flex gap-2">
             <Button
               size="sm"
@@ -719,6 +724,7 @@ export default function AppointmentsPage() {
               Manual slot
             </Button>
           </div>
+          )
         }
       />
 

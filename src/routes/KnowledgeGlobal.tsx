@@ -23,6 +23,7 @@ import {
   kb_document_delete_url,
   getStaffUser,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 import { handleError } from "@/components/CommonJquery/CommonJquery";
 
 const isValidCategorySource = (value: string) => /^[a-zA-Z0-9_]+$/.test(value);
@@ -80,6 +81,7 @@ function coerceMetadataValue(value: string): string | number {
 }
 
 export default function KnowledgeGlobal() {
+  const canEdit = hasPerm("knowledge.edit");
   // The logged-in staff member's own dealer -- the backend scopes to it
   // anyway, this just keeps the requests honest.
   const [dealerId] = useState<number | null>(() => getStaffUser()?.dealer_id ?? null);
@@ -332,9 +334,11 @@ export default function KnowledgeGlobal() {
         title="Knowledge Base"
         description="Manage knowledge sources by module — tag each one to a segment, or make it Global, and scope it to a branch."
         actions={
-          <Button size="sm" onClick={openAdd}>
-            <Plus className="size-4" /> Add
-          </Button>
+          canEdit && (
+            <Button size="sm" onClick={openAdd}>
+              <Plus className="size-4" /> Add
+            </Button>
+          )
         }
       />
 
@@ -632,6 +636,7 @@ export default function KnowledgeGlobal() {
                       {item.category} • {item.chunk_count} chunks
                       {item.indexed_at && ` • indexed ${item.indexed_at}`}
                     </div>
+                    {canEdit && (
                     <div className="flex gap-2 pt-2">
                       <Button variant="outline" size="sm" onClick={() => openEdit(item)}>
                         <Pencil className="size-3.5" /> Edit
@@ -644,6 +649,7 @@ export default function KnowledgeGlobal() {
                         <Trash2 className="size-3.5" /> Delete
                       </Button>
                     </div>
+                    )}
                   </CardContent>
                 </Card>
               );
