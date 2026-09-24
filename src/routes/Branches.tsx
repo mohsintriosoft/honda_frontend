@@ -155,10 +155,10 @@ export default function BranchesPage() {
 
                         <Stat label="Holidays" value={formatNumber(b.holidays?.length ?? 0)} />
 
-                        <Stat
+                        {/* <Stat
                           label="Hours"
                           value={`${b.openingTime ?? "—"}–${b.closingTime ?? "—"}`}
-                        />
+                        /> */}
                       </div>
 
                       <div className="mt-4 flex items-center gap-3">

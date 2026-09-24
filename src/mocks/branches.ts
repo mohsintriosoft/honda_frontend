@@ -21,6 +21,14 @@ export interface BranchHoliday {
     reason: string; // BranchHoliday.reason
 }
 
+/** Per-day schedule entry — mirrors the backend's BranchDayTiming model. */
+export interface BranchDayTiming {
+    weekday: number;      // 0 = Mon … 6 = Sun
+    isOpen: boolean;
+    openingTime: string;  // "HH:MM"
+    closingTime: string;  // "HH:MM"
+}
+
 export interface Branch {
     id: number;
     dealerId: number;
@@ -35,6 +43,7 @@ export interface Branch {
     slotDurationMinutes: number; // Branch.slot_duration_minutes
     maxPerSlot: number; // Branch.max_per_slot
     weeklyOff: number[]; // Branch.weekly_off, 0=Mon…6=Sun
+    weeklySchedule: BranchDayTiming[]; // per-day open/close times
     isActive: boolean; // Branch.is_active
     createdAt: string;
     updatedAt: string;
@@ -57,6 +66,16 @@ export function slotsPerDay(b: Pick<Branch, "openingTime" | "closingTime" | "slo
     return Math.floor(minutes / b.slotDurationMinutes);
 }
 
+/** Generates a default Mon-Sat open schedule (Sunday off). */
+function defaultWeeklySchedule(openingTime = "09:00", closingTime = "18:00"): BranchDayTiming[] {
+    return Array.from({ length: 7 }, (_, i) => ({
+        weekday: i,
+        isOpen: i !== 6, // Sunday (6) closed by default
+        openingTime,
+        closingTime,
+    }));
+}
+
 export const branches: Branch[] = [
     {
         id: 1,
@@ -72,6 +91,7 @@ export const branches: Branch[] = [
         slotDurationMinutes: 60,
         maxPerSlot: 10,
         weeklyOff: [6], // Sunday
+        weeklySchedule: defaultWeeklySchedule("09:00", "18:00"),
         isActive: true,
         createdAt: "2024-01-08T00:00:00Z",
         updatedAt: "2026-08-20T00:00:00Z",
@@ -95,6 +115,7 @@ export const branches: Branch[] = [
         slotDurationMinutes: 60,
         maxPerSlot: 10,
         weeklyOff: [6],
+        weeklySchedule: defaultWeeklySchedule("09:00", "19:00"),
         isActive: true,
         createdAt: "2024-03-15T00:00:00Z",
         updatedAt: "2026-08-18T00:00:00Z",
@@ -115,6 +136,7 @@ export const branches: Branch[] = [
         slotDurationMinutes: 30,
         maxPerSlot: 6,
         weeklyOff: [6],
+        weeklySchedule: defaultWeeklySchedule("09:30", "18:30"),
         isActive: true,
         createdAt: "2024-06-01T00:00:00Z",
         updatedAt: "2026-07-30T00:00:00Z",
@@ -135,6 +157,7 @@ export const branches: Branch[] = [
         slotDurationMinutes: 60,
         maxPerSlot: 8,
         weeklyOff: [6],
+        weeklySchedule: defaultWeeklySchedule("09:00", "18:00"),
         isActive: false,
         createdAt: "2024-09-10T00:00:00Z",
         updatedAt: "2026-05-02T00:00:00Z",
@@ -161,6 +184,7 @@ export const DEFAULT_NEW_BRANCH: Omit<Branch, "id" | "createdAt" | "updatedAt" |
     slotDurationMinutes: 60,
     maxPerSlot: 10,
     weeklyOff: [6],
+    weeklySchedule: defaultWeeklySchedule(),
     isActive: true,
     holidays: [],
 };

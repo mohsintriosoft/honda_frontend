@@ -28,9 +28,6 @@ type DraftBranch = Omit<Branch, "id" | "createdAt" | "updatedAt" | "stats"> &
 // the server (a negative slot length would hang the slot-grid loop).
 function validateBranch(b: DraftBranch): string | null {
   if (!b.name?.trim()) return "Name is required.";
-  if (!b.openingTime || !b.closingTime || b.closingTime <= b.openingTime) {
-    return "Closing time must be after opening time.";
-  }
   if (
     !Number.isFinite(b.slotDurationMinutes) ||
     b.slotDurationMinutes < 5 ||
@@ -41,8 +38,15 @@ function validateBranch(b: DraftBranch): string | null {
   if (!Number.isFinite(b.maxPerSlot) || b.maxPerSlot < 1) {
     return "Max customers per slot must be at least 1.";
   }
-  if ((b.weeklyOff ?? []).length >= 7) {
+  const schedule = b.weeklySchedule ?? [];
+  if (!schedule.some((d) => d.isOpen)) {
     return "At least one day of the week must be open.";
+  }
+  for (const d of schedule) {
+    if (!d.isOpen) continue;
+    if (!d.openingTime || !d.closingTime || d.closingTime <= d.openingTime) {
+      return "Closing time must be after opening time.";
+    }
   }
   const holidays = b.holidays ?? [];
   if (holidays.some((h) => !h.date)) {
@@ -150,9 +154,30 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
   const set = <K extends keyof DraftBranch>(key: K, value: DraftBranch[K]) =>
     setBranch((b) => ({ ...b, [key]: value }));
 
-  const toggleWeeklyOff = (day: number) => {
-    const current = branch.weeklyOff ?? [];
-    set("weeklyOff", current.includes(day) ? current.filter((d) => d !== day) : [...current, day]);
+  // Per-weekday schedule helpers -- mirrors the backend's BranchDayTiming
+  const getDaySchedule = (day: number) =>
+    (branch.weeklySchedule ?? []).find((d) => d.weekday === day) ?? {
+      weekday: day,
+      isOpen: false,
+      openingTime: "09:00",
+      closingTime: "18:00",
+    };
+
+  const setDaySchedule = (day: number, patch: Partial<{ isOpen: boolean; openingTime: string; closingTime: string }>) => {
+    const current = branch.weeklySchedule ?? [];
+    const existing = getDaySchedule(day);
+    const updated = { ...existing, ...patch };
+    const withoutDay = current.filter((d) => d.weekday !== day);
+    set("weeklySchedule", [...withoutDay, updated].sort((a, b) => a.weekday - b.weekday));
+  };
+
+  const toggleDayOpen = (day: number) => {
+    const current = getDaySchedule(day);
+    setDaySchedule(day, {
+      isOpen: !current.isOpen,
+      openingTime: current.openingTime || "09:00",
+      closingTime: current.closingTime || "18:00",
+    });
   };
 
   const addHoliday = () => {
@@ -336,15 +361,16 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
               <CardHeader>
                 <CardTitle className="text-base">Weekly schedule</CardTitle>
                 <p className="text-xs text-muted-foreground">
-                  Same opening/closing time applies to every day that's on — flip a day off to skip
-                  bookings for it entirely.
+                  Each day can have its own opening/closing time — flip a day off to skip bookings
+                  for it entirely.
                 </p>
               </CardHeader>
 
               <CardContent className="p-0">
                 <div className="divide-y">
                   {WEEKDAY_LABELS.map((label, day) => {
-                    const off = (branch.weeklyOff ?? []).includes(day);
+                    const daySchedule = getDaySchedule(day);
+                    const off = !daySchedule.isOpen;
 
                     return (
                       <div
@@ -355,13 +381,18 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                           {label}
                         </span>
 
-                        <Input
-                          type="time"
-                          className="w-32"
-                          value={branch.openingTime}
-                          disabled={off}
-                          onChange={(e) => set("openingTime", e.target.value)}
-                        />
+                        {off ? (
+                          <span className="w-32 rounded-md border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                            off
+                          </span>
+                        ) : (
+                          <Input
+                            type="time"
+                            className="w-32"
+                            value={daySchedule.openingTime ?? "09:00"}
+                            onChange={(e) => setDaySchedule(day, { openingTime: e.target.value })}
+                          />
+                        )}
 
                         <span className="text-sm text-muted-foreground">to</span>
 
@@ -373,8 +404,8 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
                           <Input
                             type="time"
                             className="w-32"
-                            value={branch.closingTime}
-                            onChange={(e) => set("closingTime", e.target.value)}
+                            value={daySchedule.closingTime ?? "18:00"}
+                            onChange={(e) => setDaySchedule(day, { closingTime: e.target.value })}
                           />
                         )}
 
@@ -382,7 +413,7 @@ function BranchDetailContent({ draft, isNew }: { draft: DraftBranch; isNew: bool
 
                         <Switch
                           checked={!off}
-                          onCheckedChange={() => toggleWeeklyOff(day)}
+                          onCheckedChange={() => toggleDayOpen(day)}
                           aria-label={`${label} ${off ? "closed" : "open"}`}
                         />
                       </div>
