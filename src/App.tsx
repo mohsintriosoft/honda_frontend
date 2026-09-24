@@ -17,13 +17,12 @@ import Agents from "./routes/Agents";
 import AgentDetails from "./routes/AgentDetails";
 import AgentRecordings from "./routes/AgentRecordings";
 import Appointments from "./routes/Appointments";
-
 import Branches from "./routes/Branches";
 import BranchDetails from "./routes/BranchDetails";
+import Campaigns from "./routes/Campaigns";
+import CampaignDetails from "./routes/CampaignDetails";
 
-import Campaigns from "./routes/_app.campaigns.index";
-import CampaignDetails from "./routes/_app.campaigns.$id";
-import NewCampaign from "./routes/_app.campaigns.new";
+
 
 import Customers from "./routes/_app.customers.index";
 import CustomerDetails from "./routes/_app.customers.$id";
@@ -144,7 +143,6 @@ export default function App() {
 
           <Route path="/campaigns" element={<Campaigns />} />
 
-          <Route path="/campaigns/new" element={<NewCampaign />} />
 
           <Route path="/campaigns/:id" element={<CampaignDetails />} />
 

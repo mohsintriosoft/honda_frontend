@@ -36,15 +36,12 @@ import {
   get_recordings,
   get_branches,
   get_segment_detail,
-  patch_segment,
   server_get_data,
   server_post_data,
   server_patch_data,
 } from "@/components/ServiceConnection/serviceconnection";
 
-// Weekday encoding used by Campaign.call_days (docs §5.4 / model help
-// text: "[0,1,2,3,4,5] = Mon-Sat"). 0=Monday…6=Sunday — NOT JS Date's
-// 0=Sunday, so this mapping matters.
+// Campaign.call_days: 0=Monday…6=Sunday (NOT JS Date's 0=Sunday).
 const DAYS = [
   { value: 0, label: "Mon" },
   { value: 1, label: "Tue" },
@@ -54,10 +51,6 @@ const DAYS = [
   { value: 5, label: "Sat" },
   { value: 6, label: "Sun" },
 ];
-
-/* -------------------------------------------------------------------------- */
-/* Types — mirrors views_admin.campaign_detail() (docs §19.6, §11.6/§11.9)    */
-/* -------------------------------------------------------------------------- */
 
 interface CampaignTotals {
   customers: number;
@@ -94,33 +87,17 @@ interface BranchOption {
 interface ApiCampaign {
   id: number;
   name: string;
-  // NOTE: segment and agent are wired once at setup and are permanent
-  // (docs §11.1/§11.6) — this page never edits them, only links out to
-  // where they ARE editable (their own detail pages).
   segment: { id: number; name: string } | null;
   agent: { id: number; persona_name: string; agent_name?: string } | null;
-  // 🔥 NEW — docs §11.5 "Targeting": NULL = whole dealer, set = restricted
-  // to one branch's customers. Was missing from this page entirely.
   branch: BranchOption | null;
   channel: string[];
   is_active: boolean;
   status: "live" | "paused" | "draft";
   daily_call_limit: number;
   min_daily_calls: number;
-  // 🔥 NEW — docs §11.5 "Operational controls". Previously only
-  // daily_call_limit/call_start_time/call_end_time/call_days were
-  // surfaced here even though the model (and the doc's own field
-  // table) defines these alongside them.
   max_attempts: number;
   retry_gap_days: number;
   priority: number;
-  // 🔥 NEW — docs §11.5 "Content": appended to the agent's system_prompt
-  // for this campaign only (e.g. Missed Service's "customer aaya nahi
-  // tha, politely wajah puchho"). The old `opening_line: string` field
-  // that used to sit here doesn't exist on Campaign in the current
-  // schema — that setting lives on Segment now (see
-  // serviceconnection.js's note on the redesign) and is edited from
-  // the segment's own page, which this page now links to.
   extra_prompt: string;
   call_start_time: string | null;
   call_end_time: string | null;
@@ -142,9 +119,6 @@ interface RecentCall {
   started_at: string | null;
 }
 
-// Mirrors _serialize_segment()'s fields — only the ones this page actually
-// shows (calling window + description). Fetched separately from
-// get_campaign_detail(), which only carries the brief {id, name}.
 interface SegmentDetail {
   id: number;
   description: string | null;
@@ -153,14 +127,11 @@ interface SegmentDetail {
   days_after: number;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Page                                                                        */
-/* -------------------------------------------------------------------------- */
+function apiErrorMessage(err: any, fallback: string) {
+  if (err?.response?.status === 403) return "You don't have permission to do this.";
+  return err?.response?.data?.error ?? fallback;
+}
 
-// 🔥 No edit-segment/edit-agent or delete actions here either — a
-// campaign's segment and agent are wired once at setup and are
-// permanent (docs §11.1/§11.6). This page only lets you toggle it and
-// tune the operational controls listed in §11.5.
 export default function CampaignDetailPage() {
   const { id } = useParams();
 
@@ -171,14 +142,10 @@ export default function CampaignDetailPage() {
   const [segmentDetail, setSegmentDetail] = useState<SegmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [actionPending, setActionPending] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  // Editable operational controls (docs §11.5 — Targeting.branch,
-  // Content.extra_prompt, and every field under "Operational controls":
-  // daily_call_limit, min_daily_calls, call_start_time, call_end_time,
-  // call_days, max_attempts, retry_gap_days, priority). Kept as separate
-  // local state from `campaign` so typing doesn't fight with the loaded
-  // data, and so we can tell the user their edits are unsaved.
   const [form, setForm] = useState({
     daily_call_limit: 0,
     min_daily_calls: 0,
@@ -196,9 +163,6 @@ export default function CampaignDetailPage() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  // Segment's calling window — lives on a separate resource (PATCH
-  // /api/segments/{id}/) but is saved by the same "Save" button as the
-  // campaign fields below (see saveSettings).
   const [segmentForm, setSegmentForm] = useState({
     days_before: 7,
     days_after: 30,
@@ -208,34 +172,39 @@ export default function CampaignDetailPage() {
   const load = () => {
     if (!id) return;
     setLoading(true);
+    setLoadError(null);
 
     server_get_data(get_campaign_detail(id))
       .then((res) => {
         const loaded: ApiCampaign | null = res?.campaign ?? null;
+        if (!loaded) {
+          setNotFound(true);
+          return;
+        }
         setCampaign(loaded);
         setHistory(res?.history ?? []);
-
-        if (loaded) {
-          setForm({
-            daily_call_limit: loaded.daily_call_limit,
-            min_daily_calls: loaded.min_daily_calls ?? 0,
-            call_start_time: loaded.call_start_time ?? "10:00",
-            call_end_time: loaded.call_end_time ?? "18:00",
-            call_days: loaded.call_days ?? [],
-            max_attempts: loaded.max_attempts ?? 3,
-            retry_gap_days: loaded.retry_gap_days ?? 2,
-            priority: loaded.priority ?? 50,
-            extra_prompt: loaded.extra_prompt ?? "",
-            branch_id: loaded.branch?.id ?? "",
-          });
-          setDirty(false);
-        }
+        setForm({
+          daily_call_limit: loaded.daily_call_limit ?? 0,
+          min_daily_calls: loaded.min_daily_calls ?? 0,
+          call_start_time: loaded.call_start_time ?? "10:00",
+          call_end_time: loaded.call_end_time ?? "18:00",
+          call_days: loaded.call_days ?? [],
+          max_attempts: loaded.max_attempts ?? 3,
+          retry_gap_days: loaded.retry_gap_days ?? 2,
+          priority: loaded.priority ?? 50,
+          extra_prompt: loaded.extra_prompt ?? "",
+          branch_id: loaded.branch?.id ?? "",
+        });
+        setDirty(false);
       })
-      .catch(() => setNotFound(true))
+      .catch((err) => {
+        if (err?.response?.status === 404) setNotFound(true);
+        else setLoadError(apiErrorMessage(err, "Couldn't load this campaign. Try again."));
+      })
       .finally(() => setLoading(false));
 
     server_get_data(get_recordings, { campaign: id, page_size: 10 })
-      .then((res) => setCalls(res?.results ?? res?.data ?? []))
+      .then((res) => setCalls(res?.results ?? []))
       .catch(() => setCalls([]));
   };
 
@@ -244,17 +213,12 @@ export default function CampaignDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Branch options for the targeting select — independent of `id`, so
-  // this only needs to run once regardless of which campaign is open.
   useEffect(() => {
     server_get_data(get_branches)
-      .then((res) => setBranches(res?.branches ?? res?.results ?? res?.data ?? []))
+      .then((res) => setBranches(res?.branches ?? []))
       .catch(() => setBranches([]));
   }, []);
 
-  // get_campaign_detail only carries the segment's {id, name} — the
-  // calling window (days_before/days_after) lives on the segment's own
-  // record, fetched separately here.
   useEffect(() => {
     const segmentId = campaign?.segment?.id;
     if (!segmentId) {
@@ -267,8 +231,8 @@ export default function CampaignDetailPage() {
         setSegmentDetail(detail);
         if (detail) {
           setSegmentForm({
-            days_before: detail.days_before,
-            days_after: detail.days_after,
+            days_before: detail.days_before ?? 0,
+            days_after: detail.days_after ?? 0,
           });
           setSegmentDirty(false);
         }
@@ -296,53 +260,93 @@ export default function CampaignDetailPage() {
     });
   };
 
+  const validate = (): string | null => {
+    if (!Number.isFinite(form.daily_call_limit) || form.daily_call_limit < 0) {
+      return "Daily call limit can't be negative.";
+    }
+    if (
+      !form.call_start_time ||
+      !form.call_end_time ||
+      form.call_end_time <= form.call_start_time
+    ) {
+      return "Call end time must be after call start time.";
+    }
+    if (
+      segmentDirty &&
+      (!Number.isFinite(segmentForm.days_before) ||
+        segmentForm.days_before < 0 ||
+        !Number.isFinite(segmentForm.days_after) ||
+        segmentForm.days_after < 0)
+    ) {
+      return "Calling window days can't be negative.";
+    }
+    return null;
+  };
+
+  // One PATCH for everything -- the backend writes the segment's calling
+  // window in the same transaction, under the campaign permission.
   const saveSettings = () => {
     if (!id) return;
+
+    const validationError = validate();
+    if (validationError) {
+      setSaveError(validationError);
+      return;
+    }
+
     setSaving(true);
     setSaveError(null);
 
-    const requests: Promise<unknown>[] = [
-      server_patch_data(patch_campaign(id), {
-        daily_call_limit: form.daily_call_limit,
-        min_daily_calls: form.min_daily_calls,
-        call_start_time: form.call_start_time,
-        call_end_time: form.call_end_time,
-        call_days: form.call_days,
-        max_attempts: form.max_attempts,
-        retry_gap_days: form.retry_gap_days,
-        priority: form.priority,
-        extra_prompt: form.extra_prompt,
-        // NULL = whole dealer (docs §11.5) — the select uses "" for that.
-        branch_id: form.branch_id === "" ? null : form.branch_id,
-      }),
-    ];
-
-    // Calling window lives on the Segment, a separate resource — only
-    // PATCH it if it's actually the thing that changed.
-    if (segmentDirty && segmentDetail) {
-      requests.push(
-        server_patch_data(patch_segment(segmentDetail.id), {
-          days_before: segmentForm.days_before,
-          days_after: segmentForm.days_after,
-        }).then((res) => {
-          if (res?.segment) setSegmentDetail(res.segment);
-          setSegmentDirty(false);
-        })
-      );
+    const payload: Record<string, unknown> = {
+      daily_call_limit: form.daily_call_limit,
+      min_daily_calls: form.min_daily_calls,
+      call_start_time: form.call_start_time,
+      call_end_time: form.call_end_time,
+      call_days: form.call_days,
+      max_attempts: form.max_attempts,
+      retry_gap_days: form.retry_gap_days,
+      priority: form.priority,
+      extra_prompt: form.extra_prompt,
+      branch_id: form.branch_id === "" ? null : form.branch_id,
+    };
+    if (segmentDirty) {
+      payload.days_before = segmentForm.days_before;
+      payload.days_after = segmentForm.days_after;
     }
 
-    Promise.all(requests)
-      .then(() => {
+    server_patch_data(patch_campaign(id), payload)
+      .then((res) => {
+        if (res?.success === false) throw { response: { data: res } };
+        if (res?.segment_window && segmentDetail) {
+          setSegmentDetail({ ...segmentDetail, ...res.segment_window });
+        }
         setDirty(false);
+        setSegmentDirty(false);
         setSaved(true);
         load();
       })
-      .catch(() => setSaveError("Couldn't save — check the values and try again."))
+      .catch((err) =>
+        setSaveError(apiErrorMessage(err, "Couldn't save — check the values and try again.")),
+      )
       .finally(() => setSaving(false));
   };
 
   if (notFound) {
     return <Navigate to="/campaigns" replace />;
+  }
+
+  if (loadError && !campaign) {
+    return (
+      <>
+        <PageHeader title="Campaign" breadcrumbs={[{ label: "Campaigns", to: "/campaigns" }]} />
+        <div className="p-8 text-center space-y-3">
+          <p className="text-sm text-destructive">{loadError}</p>
+          <Button variant="outline" size="sm" onClick={load}>
+            Retry
+          </Button>
+        </div>
+      </>
+    );
   }
 
   if (loading || !campaign) {
@@ -355,31 +359,35 @@ export default function CampaignDetailPage() {
   }
 
   const c = campaign;
+  const totals = c.totals ?? ({} as CampaignTotals);
+  const lifetime = c.lifetime ?? ({} as CampaignLifetime);
 
-  const runAction = (action: (campaignId: string) => Promise<unknown>) => {
+  const runAction = (action: (campaignId: string) => Promise<any>, label: string) => {
     if (!id) return;
     setActionPending(true);
+    setActionError(null);
     action(id)
-      .then(() => load())
+      .then((res) => {
+        if (res?.success === false) throw { response: { data: res } };
+        load();
+      })
+      .catch((err) => setActionError(apiErrorMessage(err, `Couldn't ${label}. Try again.`)))
       .finally(() => setActionPending(false));
   };
 
   const funnel = [
-    { stage: "Customers", value: c.totals.customers },
-    { stage: "Completed", value: c.totals.completed },
-    { stage: "Connected", value: c.totals.connected },
-    { stage: "Interested", value: c.totals.interested },
-    { stage: "Booked", value: c.totals.booked },
+    { stage: "Customers", value: totals.customers ?? 0 },
+    { stage: "Completed", value: totals.completed ?? 0 },
+    { stage: "Connected", value: totals.connected ?? 0 },
+    { stage: "Interested", value: totals.interested ?? 0 },
+    { stage: "Booked", value: totals.booked ?? 0 },
   ];
 
   return (
     <>
       <PageHeader
         title={c.name}
-        breadcrumbs={[
-          { label: "Campaigns", to: "/campaigns" },
-          { label: c.name },
-        ]}
+        breadcrumbs={[{ label: "Campaigns", to: "/campaigns" }, { label: c.name }]}
         actions={
           <>
             {c.is_active ? (
@@ -388,7 +396,7 @@ export default function CampaignDetailPage() {
                   variant="outline"
                   size="sm"
                   disabled={actionPending}
-                  onClick={() => runAction((cid) => server_post_data(campaign_pause(cid)))}
+                  onClick={() => runAction((cid) => server_post_data(campaign_pause(cid)), "pause")}
                 >
                   <Pause className="size-4" />
                   Pause
@@ -398,7 +406,12 @@ export default function CampaignDetailPage() {
                   variant="ghost"
                   size="sm"
                   disabled={actionPending}
-                  onClick={() => runAction((cid) => server_post_data(campaign_pause_clear(cid)))}
+                  onClick={() =>
+                    runAction(
+                      (cid) => server_post_data(campaign_pause_clear(cid)),
+                      "pause and clear the queue",
+                    )
+                  }
                 >
                   <XCircle className="size-4" />
                   Pause &amp; clear queue
@@ -409,7 +422,7 @@ export default function CampaignDetailPage() {
                 variant="outline"
                 size="sm"
                 disabled={actionPending}
-                onClick={() => runAction((cid) => server_post_data(campaign_resume(cid)))}
+                onClick={() => runAction((cid) => server_post_data(campaign_resume(cid)), "resume")}
               >
                 <Play className="size-4" />
                 Resume
@@ -424,24 +437,22 @@ export default function CampaignDetailPage() {
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
-        {/* Campaign info */}
+        {actionError && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {actionError}
+          </div>
+        )}
+
         <div className="flex items-center gap-2 text-sm text-muted-foreground flex-wrap">
           <StatusBadge status={c.status} />
-
           <span>•</span>
-
           <span>{c.agent?.persona_name ?? c.agent?.agent_name ?? "No agent"}</span>
-
           <span>•</span>
-
           <span className="font-mono text-xs">
             {c.segment?.name ?? "—"} • limit {c.daily_call_limit}/day
           </span>
-
           <span>•</span>
-
           <span>{c.branch ? c.branch.name : "All branches"}</span>
-
           {c.call_start_time && c.call_end_time && (
             <>
               <span>•</span>
@@ -452,50 +463,37 @@ export default function CampaignDetailPage() {
           )}
         </div>
 
-        {/* Metrics — this month, from the current CampaignBatch (docs §11.6) */}
+        {/* This month */}
         <div>
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
             This month
           </div>
           <div className="grid gap-3 grid-cols-2 md:grid-cols-4 lg:grid-cols-8">
-            <MetricTile label="Total" value={c.totals.customers} />
-
-            <MetricTile label="Completed" value={c.totals.completed} />
-
-            <MetricTile label="Connected" value={c.totals.connected} tone="info" />
-
-            <MetricTile label="Interested" value={c.totals.interested} tone="success" />
-
-            <MetricTile label="Booked" value={c.totals.booked} tone="ai" />
-
-            <MetricTile label="Callback" value={c.totals.callback} tone="warning" />
-
-            <MetricTile label="Failed" value={c.totals.failed} tone="destructive" />
-
-            <MetricTile label="Revenue" value={formatCurrency(c.totals.revenue)} />
+            <MetricTile label="Total" value={totals.customers ?? 0} />
+            <MetricTile label="Completed" value={totals.completed ?? 0} />
+            <MetricTile label="Connected" value={totals.connected ?? 0} tone="info" />
+            <MetricTile label="Interested" value={totals.interested ?? 0} tone="success" />
+            <MetricTile label="Booked" value={totals.booked ?? 0} tone="ai" />
+            <MetricTile label="Callback" value={totals.callback ?? 0} tone="warning" />
+            <MetricTile label="Failed" value={totals.failed ?? 0} tone="destructive" />
+            <MetricTile label="Revenue" value={formatCurrency(totals.revenue ?? 0)} />
           </div>
         </div>
 
-        {/* Metrics — lifetime, straight off the Campaign model's own stat
-            fields (total_called / total_connected / total_booked / revenue —
-            docs §11.5 "Lifetime stats"), separate from the per-month batch
-            numbers above. */}
+        {/* Lifetime */}
         <div>
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide mb-2">
             Lifetime
           </div>
           <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
-            <MetricTile label="Called" value={c.lifetime.total_called} />
-
-            <MetricTile label="Connected" value={c.lifetime.total_connected} tone="info" />
-
-            <MetricTile label="Booked" value={c.lifetime.total_booked} tone="ai" />
-
-            <MetricTile label="Revenue" value={formatCurrency(c.lifetime.revenue)} />
+            <MetricTile label="Called" value={lifetime.total_called ?? 0} />
+            <MetricTile label="Connected" value={lifetime.total_connected ?? 0} tone="info" />
+            <MetricTile label="Booked" value={lifetime.total_booked ?? 0} tone="ai" />
+            <MetricTile label="Revenue" value={formatCurrency(lifetime.revenue ?? 0)} />
           </div>
         </div>
 
-        {/* Funnel + opening line */}
+        {/* Funnel */}
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2">
             <CardHeader>
@@ -506,10 +504,12 @@ export default function CampaignDetailPage() {
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={funnel} layout="vertical" margin={{ left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" horizontal={false} />
-
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="var(--border)"
+                      horizontal={false}
+                    />
                     <XAxis type="number" tick={{ fontSize: 11 }} stroke="var(--muted-foreground)" />
-
                     <YAxis
                       type="category"
                       dataKey="stage"
@@ -517,7 +517,6 @@ export default function CampaignDetailPage() {
                       stroke="var(--muted-foreground)"
                       width={90}
                     />
-
                     <Tooltip
                       contentStyle={{
                         background: "var(--popover)",
@@ -526,7 +525,6 @@ export default function CampaignDetailPage() {
                         fontSize: 12,
                       }}
                     />
-
                     <Bar dataKey="value" fill="var(--chart-1)" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
@@ -535,61 +533,12 @@ export default function CampaignDetailPage() {
           </Card>
         </div>
 
-        {/* Linked configuration — a campaign is just "who" (segment) +
-            "how" (agent) + operational controls (docs §11.1). Opening
-            line/closing line, description and the knowledge base still
-            live entirely on the Segment page (linked out below); the
-            segment's calling window is edited from the "Targeting,
-            schedule & limits" card below instead, since it's an
-            operational control in the same spirit as call_days/timing.
-            Persona/voice/system prompt live on the Agent (also linked
-            out). */}
-        {/* <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-display">Linked configuration</CardTitle>
-          </CardHeader>
-
-          <CardContent className="grid gap-3 md:grid-cols-2">
-            <Link
-              to={c.segment ? `/segments/${c.segment.id}` : "/segments"}
-              className="flex items-center justify-between rounded-md border p-3 text-sm hover:border-primary/40 transition-colors"
-            >
-              <span>
-                <span className="text-muted-foreground">Segment</span>
-                <br />
-                <span className="font-medium">{c.segment?.name ?? "—"}</span>
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Opening line, closing line &amp; description →
-              </span>
-            </Link>
-
-            <Link
-              to={c.agent ? `/agents/${c.agent.id}` : "/agents"}
-              className="flex items-center justify-between rounded-md border p-3 text-sm hover:border-primary/40 transition-colors"
-            >
-              <span>
-                <span className="text-muted-foreground">Agent</span>
-                <br />
-                <span className="font-medium">
-                  {c.agent?.persona_name ?? c.agent?.agent_name ?? "—"}
-                </span>
-              </span>
-              <span className="text-xs text-muted-foreground">Persona, voice &amp; prompt →</span>
-            </Link>
-          </CardContent>
-        </Card> */}
-
-        {/* Editable operational controls — every field docs §11.5 lists
-            under Targeting.branch, Content.extra_prompt and "Operational
-            controls", not just daily_call_limit/timing/days. Also includes
-            the segment's calling window (days_before/days_after) even
-            though that's a different resource (PATCH /api/segments/{id}/,
-            not /campaigns/{id}/) — saveSettings fires both PATCHes
-            together behind the one Save button. */}
+        {/* Targeting, schedule & limits */}
         <Card>
           <CardHeader className="flex-row items-center justify-between">
-            <CardTitle className="text-base font-display">Targeting, schedule &amp; limits</CardTitle>
+            <CardTitle className="text-base font-display">
+              Targeting, schedule &amp; limits
+            </CardTitle>
 
             <div className="flex items-center gap-2">
               {saved && !dirty && !segmentDirty && (
@@ -644,13 +593,7 @@ export default function CampaignDetailPage() {
                   onChange={(e) => updateForm({ daily_call_limit: Number(e.target.value) })}
                 />
               </div>
-
             </div>
-            {/* <p className="text-xs text-muted-foreground -mt-2 md:col-start-2">
-              Max CallTasks created per night, and a floor so a smaller segment isn't starved. Every
-              active campaign's limit is validated against the dealer's daily call budget (a
-              warning, not a hard block).
-            </p> */}
 
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -674,47 +617,6 @@ export default function CampaignDetailPage() {
               </div>
             </div>
 
-            {/* <div className="grid grid-cols-3 gap-3">
-              <div>
-                <Label>Priority</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  className="mt-1"
-                  value={form.priority}
-                  onChange={(e) => updateForm({ priority: Number(e.target.value) })}
-                />
-              </div>
-
-              <div>
-                <Label>Max attempts</Label>
-                <Input
-                  type="number"
-                  min={1}
-                  className="mt-1"
-                  value={form.max_attempts}
-                  onChange={(e) => updateForm({ max_attempts: Number(e.target.value) })}
-                />
-              </div>
-
-              <div>
-                <Label>Retry gap (days)</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  className="mt-1"
-                  value={form.retry_gap_days}
-                  onChange={(e) => updateForm({ retry_gap_days: Number(e.target.value) })}
-                />
-              </div>
-            </div> */}
-
-            {/* <p className="text-xs text-muted-foreground md:col-start-2 -mt-2">
-              Dial order when tasks compete (0–100), how many attempts before a task is exhausted,
-              and how many days between attempts.
-            </p> */}
-
             <div className="md:col-span-2">
               <Label>Call days</Label>
               <div className="mt-1 flex flex-wrap gap-2">
@@ -725,10 +627,11 @@ export default function CampaignDetailPage() {
                       key={day.value}
                       type="button"
                       onClick={() => toggleDay(day.value)}
-                      className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${active
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "text-muted-foreground hover:bg-accent"
-                        }`}
+                      className={`px-3 py-1.5 rounded-md text-xs border transition-colors ${
+                        active
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "text-muted-foreground hover:bg-accent"
+                      }`}
                     >
                       {day.label}
                     </button>
@@ -750,49 +653,28 @@ export default function CampaignDetailPage() {
                     min={0}
                     className="w-20"
                     value={segmentForm.days_before}
-                    onChange={(e) =>
-                      updateSegmentForm({ days_before: Number(e.target.value) })
-                    }
+                    onChange={(e) => updateSegmentForm({ days_before: Number(e.target.value) })}
                   />
-                  <span className="text-sm text-muted-foreground">
-                    days before, tries until
-                  </span>
+                  <span className="text-sm text-muted-foreground">days before, tries until</span>
                   <Input
                     type="number"
                     min={0}
                     className="w-20"
                     value={segmentForm.days_after}
-                    onChange={(e) =>
-                      updateSegmentForm({ days_after: Number(e.target.value) })
-                    }
+                    onChange={(e) => updateSegmentForm({ days_after: Number(e.target.value) })}
                   />
                   <span className="text-sm text-muted-foreground">days after the due date</span>
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Lives on the segment ({c.segment?.name}), not the campaign — changing it
-                  affects every campaign using this segment.
+                  Lives on the segment ({c.segment?.name}), not the campaign — changing it affects
+                  every campaign using this segment.
                 </p>
               </div>
             )}
-
-            {/* <div className="md:col-span-2">
-              <Label>Prompt override</Label>
-              <Textarea
-                className="mt-1"
-                rows={3}
-                placeholder="Appended to the agent's system prompt for this campaign only, e.g. 'customer didn't show up, politely ask why.'"
-                value={form.extra_prompt}
-                onChange={(e) => updateForm({ extra_prompt: e.target.value })}
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Optional. Joins onto the linked agent's system prompt — leave blank to use the
-                agent's prompt as-is.
-              </p>
-            </div> */}
           </CardContent>
         </Card>
 
-        {/* Batch history — docs §11.6/§11.9 */}
+        {/* History */}
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-display">History</CardTitle>
@@ -814,7 +696,10 @@ export default function CampaignDetailPage() {
               <TableBody>
                 {history.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">
+                    <TableCell
+                      colSpan={6}
+                      className="text-center text-sm text-muted-foreground py-6"
+                    >
                       No batches yet — nothing has been imported for this campaign.
                     </TableCell>
                   </TableRow>
@@ -828,11 +713,19 @@ export default function CampaignDetailPage() {
                         <span className="ml-2 text-[10px] uppercase text-primary">current</span>
                       )}
                     </TableCell>
-                    <TableCell className="text-sm tabular-nums">{b.totals.customers}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{b.totals.completed}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{b.totals.connected}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{b.totals.booked}</TableCell>
-                    <TableCell className="text-sm tabular-nums">{b.conversion_rate}%</TableCell>
+                    <TableCell className="text-sm tabular-nums">
+                      {b.totals?.customers ?? 0}
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums">
+                      {b.totals?.completed ?? 0}
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums">
+                      {b.totals?.connected ?? 0}
+                    </TableCell>
+                    <TableCell className="text-sm tabular-nums">{b.totals?.booked ?? 0}</TableCell>
+                    <TableCell className="text-sm tabular-nums">
+                      {b.conversion_rate ?? 0}%
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -866,7 +759,10 @@ export default function CampaignDetailPage() {
               <TableBody>
                 {calls.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={6} className="text-center text-sm text-muted-foreground py-6">
+                    <TableCell
+                      colSpan={6}
+                      className="text-center text-sm text-muted-foreground py-6"
+                    >
                       No calls placed for this campaign yet.
                     </TableCell>
                   </TableRow>

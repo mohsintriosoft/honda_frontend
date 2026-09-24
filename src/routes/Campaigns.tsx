@@ -18,10 +18,6 @@ import {
   server_post_data,
 } from "@/components/ServiceConnection/serviceconnection";
 
-/* -------------------------------------------------------------------------- */
-/* Types — mirrors views_admin.campaigns()/_serialize_campaign (docs §19.6)   */
-/* -------------------------------------------------------------------------- */
-
 interface CampaignTotals {
   customers: number;
   completed: number;
@@ -45,7 +41,6 @@ interface ApiCampaign {
   name: string;
   segment: { id: number; name: string } | null;
   agent: { id: number; persona_name: string; agent_name?: string } | null;
-  // 🔥 NEW — docs §11.5 "Targeting": NULL = whole dealer, set = one branch.
   branch: { id: number; name: string } | null;
   channel: string[];
   is_active: boolean;
@@ -55,27 +50,18 @@ interface ApiCampaign {
   created_at: string | null;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Page                                                                        */
-/* -------------------------------------------------------------------------- */
+function apiErrorMessage(err: any, fallback: string) {
+  if (err?.response?.status === 403) return "You don't have permission to change campaigns.";
+  return err?.response?.data?.error ?? fallback;
+}
 
-// 🔥 No "New campaign" action on this page. Campaigns are 1:1 with a
-// Segment and are seeded once at setup (docs §11.1/§11.3/§11.6) — same
-// rule as Segments, which the docs are explicit have no "New Segment"
-// action either (§8.7). The panel only lets you view and operate the
-// seven campaigns that already exist.
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<ApiCampaign[]>([]);
-  // docs §11.4: every active campaign's daily_call_limit is validated
-  // against Dealer.daily_call_budget (a warning, never a hard block).
-  // views_admin.campaigns() precomputes this server-side (single source
-  // of truth for the over-budget math) and returns it as `allocation`.
   const [allocation, setAllocation] = useState<CampaignAllocation | null>(null);
   const [tab, setTab] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Campaign ids with an in-flight pause/resume call — disables that
-  // card's toggle so a double click can't fire two conflicting requests.
+  const [actionError, setActionError] = useState<string | null>(null);
   const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
 
   const loadCampaigns = () => {
@@ -87,7 +73,13 @@ export default function CampaignsPage() {
         setCampaigns(res?.campaigns ?? []);
         setAllocation(res?.allocation ?? null);
       })
-      .catch(() => setError("Couldn't load campaigns. Pull to refresh or try again."))
+      .catch((err) =>
+        setError(
+          err?.response?.status === 403
+            ? "Your role does not have permission to view campaigns."
+            : "Couldn't load campaigns. Pull to refresh or try again.",
+        ),
+      )
       .finally(() => setLoading(false));
   };
 
@@ -95,16 +87,13 @@ export default function CampaignsPage() {
     loadCampaigns();
   }, []);
 
-  // Inline ON/OFF toggle — docs §11.9's list mockup is explicit that
-  // "Toggle and limit are editable inline" right here, not only on the
-  // detail page. Stops propagation so it doesn't also trigger the
-  // card's Link navigation.
   const toggleCampaign = (e: MouseEvent, campaign: ApiCampaign) => {
     e.preventDefault();
     e.stopPropagation();
 
     if (togglingIds.has(campaign.id)) return;
 
+    setActionError(null);
     setTogglingIds((prev) => new Set(prev).add(campaign.id));
 
     const request = campaign.is_active
@@ -112,7 +101,18 @@ export default function CampaignsPage() {
       : server_post_data(campaign_resume(campaign.id));
 
     request
-      .then(() => loadCampaigns())
+      .then((res) => {
+        if (res?.success === false) throw { response: { data: res } };
+        loadCampaigns();
+      })
+      .catch((err) => {
+        setActionError(
+          apiErrorMessage(
+            err,
+            `Couldn't ${campaign.is_active ? "pause" : "resume"} "${campaign.name}". Try again.`,
+          ),
+        );
+      })
       .finally(() => {
         setTogglingIds((prev) => {
           const next = new Set(prev);
@@ -151,18 +151,15 @@ export default function CampaignsPage() {
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList>
             <TabsTrigger value="all">All ({counts.all})</TabsTrigger>
-
             <TabsTrigger value="live">Live ({counts.live})</TabsTrigger>
-
             <TabsTrigger value="paused">Paused ({counts.paused})</TabsTrigger>
-
             <TabsTrigger value="draft">Draft ({counts.draft})</TabsTrigger>
           </TabsList>
         </Tabs>
 
-        {error && (
+        {(error || actionError) && (
           <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
+            {error ?? actionError}
           </div>
         )}
 
@@ -178,12 +175,13 @@ export default function CampaignsPage() {
 
         <div className="grid gap-3">
           {visible.map((c) => {
-            const progress = c.totals.customers
-              ? Math.round((c.totals.completed / c.totals.customers) * 100)
+            const totals = c.totals ?? ({} as CampaignTotals);
+            const progress = totals.customers
+              ? Math.min(100, Math.round((totals.completed / totals.customers) * 100))
               : 0;
 
-            const conv = c.totals.completed
-              ? Math.round((c.totals.booked / c.totals.completed) * 100)
+            const conv = totals.completed
+              ? Math.round((totals.booked / totals.completed) * 100)
               : 0;
 
             return (
@@ -215,7 +213,7 @@ export default function CampaignsPage() {
                           {" • "}
                           {c.branch ? c.branch.name : "All branches"}
                           {" • limit "}
-                          {formatNumber(c.daily_call_limit)}/day
+                          {formatNumber(c.daily_call_limit ?? 0)}/day
                           {c.created_at && <> • Created {formatDate(c.created_at)}</>}
                         </div>
                       </div>
@@ -241,17 +239,12 @@ export default function CampaignsPage() {
                     </div>
 
                     <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3">
-                      <Stat label="Customers" value={formatNumber(c.totals.customers)} />
-
-                      <Stat label="Completed" value={formatNumber(c.totals.completed)} />
-
-                      <Stat label="Connected" value={formatNumber(c.totals.connected)} />
-
-                      <Stat label="Booked" value={formatNumber(c.totals.booked)} highlight />
-
-                      <Stat label="Escalated" value={formatNumber(c.totals.escalated)} />
-
-                      <Stat label="Revenue" value={formatCurrency(c.totals.revenue)} />
+                      <Stat label="Customers" value={formatNumber(totals.customers ?? 0)} />
+                      <Stat label="Completed" value={formatNumber(totals.completed ?? 0)} />
+                      <Stat label="Connected" value={formatNumber(totals.connected ?? 0)} />
+                      <Stat label="Booked" value={formatNumber(totals.booked ?? 0)} highlight />
+                      <Stat label="Escalated" value={formatNumber(totals.escalated ?? 0)} />
+                      <Stat label="Revenue" value={formatCurrency(totals.revenue ?? 0)} />
                     </div>
 
                     <div className="mt-4 flex items-center gap-3">
@@ -268,26 +261,18 @@ export default function CampaignsPage() {
           })}
         </div>
 
-        {!loading && !error && !!campaigns.length && (
-          <AllocationFooter allocation={allocation} />
-        )}
+        {!loading && !error && !!campaigns.length && <AllocationFooter allocation={allocation} />}
       </div>
     </>
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/* Allocation footer — docs §11.4: "Total allocation: 1,000 / 1,000 ✓" /       */
-/* "⚠ 50 unused" / "✗ 50 over budget". A warning, never a hard block —        */
-/* the dialer's real ceiling is Dealer.max_concurrent_calls + the calling     */
-/* window, this is just guidance while setting daily_call_limit per campaign. */
-/* -------------------------------------------------------------------------- */
-
 function AllocationFooter({ allocation }: { allocation: CampaignAllocation | null }) {
   if (!allocation) return null;
 
   const { total, budget, over } = allocation;
-  const tone = over > 0 ? "text-destructive" : total < budget ? "text-amber-500" : "text-emerald-500";
+  const tone =
+    over > 0 ? "text-destructive" : total < budget ? "text-amber-500" : "text-emerald-500";
   const suffix =
     over > 0
       ? `✗ ${formatNumber(over)} over budget`
@@ -308,8 +293,9 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
       <div className="text-[11px] uppercase text-muted-foreground tracking-wide">{label}</div>
 
       <div
-        className={`text-base font-semibold font-display tabular-nums ${highlight ? "text-primary" : ""
-          }`}
+        className={`text-base font-semibold font-display tabular-nums ${
+          highlight ? "text-primary" : ""
+        }`}
       >
         {value}
       </div>
