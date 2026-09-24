@@ -30,6 +30,8 @@ import ImportDetails from "./routes/ImportDetails";
 import Intents from "./routes/Intents";
 import IntentDetails from "./routes/IntentDetails";
 import KnowledgeGlobal from "./routes/KnowledgeGlobal";
+import Segments from "./routes/Segments";
+import SegmentDetails from "./routes/SegmentDetails";
 
 
 
@@ -38,9 +40,6 @@ import KnowledgeGlobal from "./routes/KnowledgeGlobal";
 
 
 
-
-import Segments from "./routes/_app.segments.index";
-import SegmentDetails from "./routes/_app.segments.$id";
 
 import Settings from "./routes/_app.settings.index";
 import Users from "./routes/_app.users.index";

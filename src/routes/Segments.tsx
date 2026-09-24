@@ -8,10 +8,6 @@ import { formatNumber } from "@/lib/format";
 
 import { get_segments, server_get_data } from "@/components/ServiceConnection/serviceconnection";
 
-/* -------------------------------------------------------------------------- */
-/* Types — mirrors views_admin.segments()/_serialize_segment                 */
-/* -------------------------------------------------------------------------- */
-
 interface ApiSegment {
   id: number;
   name: string;
@@ -24,10 +20,6 @@ interface ApiSegment {
   campaign_status: "live" | "paused" | "draft" | null;
 }
 
-/* -------------------------------------------------------------------------- */
-/* Page                                                                        */
-/* -------------------------------------------------------------------------- */
-
 export default function SegmentsPage() {
   const [segments, setSegments] = useState<ApiSegment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +31,13 @@ export default function SegmentsPage() {
 
     server_get_data(get_segments)
       .then((res) => setSegments(res?.segments ?? []))
-      .catch(() => setError("Couldn't load segments. Pull to refresh or try again."))
+      .catch((err) =>
+        setError(
+          err?.response?.status === 403
+            ? "Your role does not have permission to view segments."
+            : "Couldn't load segments. Pull to refresh or try again.",
+        ),
+      )
       .finally(() => setLoading(false));
   };
 
@@ -84,7 +82,6 @@ export default function SegmentsPage() {
                 <div className="flex items-start justify-between">
                   <div className="min-w-0">
                     <div className="font-display font-semibold">{s.name}</div>
-
                     <div className="text-xs text-muted-foreground mt-0.5">{s.description}</div>
                   </div>
 
@@ -98,7 +95,6 @@ export default function SegmentsPage() {
                     <div className="text-[11px] uppercase text-muted-foreground tracking-wide">
                       Customers
                     </div>
-
                     <div className="text-xl font-semibold font-display tabular-nums">
                       {formatNumber(s.customers ?? 0)}
                     </div>
@@ -108,7 +104,6 @@ export default function SegmentsPage() {
                     <div className="text-[11px] uppercase text-muted-foreground tracking-wide">
                       Due today
                     </div>
-
                     <div className="text-xl font-semibold font-display tabular-nums">
                       {formatNumber(s.due_today ?? 0)}
                     </div>
@@ -118,7 +113,6 @@ export default function SegmentsPage() {
                     <div className="text-[11px] uppercase text-muted-foreground tracking-wide">
                       Conversion
                     </div>
-
                     <div className="text-xl font-semibold font-display tabular-nums text-[color:var(--success)]">
                       {s.conversion != null ? `${s.conversion}%` : "—"}
                     </div>
