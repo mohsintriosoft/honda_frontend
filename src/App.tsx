@@ -24,8 +24,8 @@ import CampaignDetails from "./routes/CampaignDetails";
 
 
 
-import Customers from "./routes/_app.customers.index";
-import CustomerDetails from "./routes/_app.customers.$id";
+import Customers from "./routes/Customers";
+import CustomerDetails from "./routes/CustomerDetails";
 
 import Fillers from "./routes/_app.fillers.index";
 import FillerDetail from "./routes/_app.fillers.$id";

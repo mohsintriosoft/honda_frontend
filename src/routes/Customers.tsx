@@ -20,10 +20,6 @@ import { Filter, Search, Download, Sparkles, Plus, Loader2 } from "lucide-react"
 
 import { get_customers, server_get_data } from "@/components/ServiceConnection/serviceconnection";
 
-/* -------------------------------------------------------------------------- */
-/* Types — mirrors views_admin._serialize_customer_row()                     */
-/* -------------------------------------------------------------------------- */
-
 interface ApiCustomer {
   id: number;
   name: string;
@@ -39,6 +35,11 @@ interface ApiCustomer {
 
 const PAGE_SIZE = 30;
 
+function loadErrorMessage(err: any): string {
+  if (err?.response?.status === 403) return "Your role does not have permission to view customers.";
+  return err?.response?.data?.error ?? "Could not load customers. Please try again.";
+}
+
 export default function CustomersPage() {
   const [q, setQ] = useState("");
 
@@ -48,18 +49,18 @@ export default function CustomersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Debounce search: wait for typing to settle, then jump back to page 1
-  // and fetch. Page changes (Previous/Next) fetch immediately.
+  // Debounce + page reset in the same tick -> one fetch per search, on page 1.
   const [debouncedQ, setDebouncedQ] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(q), 300);
+    const t = setTimeout(() => {
+      const next = q.trim();
+      if (next !== debouncedQ) {
+        setDebouncedQ(next);
+        setPage(1);
+      }
+    }, 300);
     return () => clearTimeout(t);
-  }, [q]);
-
-  useEffect(() => {
-    setPage(1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQ]);
+  }, [q, debouncedQ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -73,11 +74,11 @@ export default function CustomersPage() {
           setCustomers(res.customers ?? []);
           setTotal(res.count ?? 0);
         } else {
-          setError(res?.error || "Could not load customers");
+          setError(res?.error || "Could not load customers.");
         }
       })
       .catch((err) => {
-        if (!cancelled) setError(err?.message || "Could not load customers");
+        if (!cancelled) setError(loadErrorMessage(err));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -95,38 +96,22 @@ export default function CustomersPage() {
       <PageHeader
         title="Customer 360"
         description="Every customer imported from the monthly CRM list — vehicle, service, insurance, AMC, and AI interactions in one view."
-      // actions={
-      //   <>
-      //     <Button variant="outline" size="sm">
-      //       <Download className="size-4" />
-      //       Export
-      //     </Button>
-
-      //     <Button size="sm">
-      //       <Plus className="size-4" />
-      //       Add customer
-      //     </Button>
-      //   </>
-      // }
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-4">
-        {/* Saved views */}
         <div className="flex items-center gap-2 overflow-x-auto pb-1">
-          {[
-            "All customers",
-          ].map((view, index) => (
+          {["All customers"].map((view, index) => (
             <button
               key={view}
-              className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${index === 0
-                ? "bg-primary text-primary-foreground border-primary"
-                : "bg-card hover:bg-accent"
-                }`}
+              className={`shrink-0 rounded-full border px-3 py-1 text-xs font-medium ${
+                index === 0
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card hover:bg-accent"
+              }`}
             >
               {view}
             </button>
           ))}
-
         </div>
 
         <Card>
@@ -146,13 +131,10 @@ export default function CustomersPage() {
               <Filter className="size-4" />
               Filters
             </Button>
-
           </CardHeader>
 
           <CardContent className="p-0">
-            {error && (
-              <div className="px-4 py-3 text-sm text-destructive border-b">{error}</div>
-            )}
+            {error && <div className="px-4 py-3 text-sm text-destructive border-b">{error}</div>}
 
             {loading && !customers.length && !error ? (
               <div className="flex items-center justify-center py-16 text-muted-foreground gap-2">
@@ -160,9 +142,13 @@ export default function CustomersPage() {
               </div>
             ) : !loading && !customers.length && !error ? (
               <div className="flex flex-col items-center justify-center gap-1 py-16 text-center">
-                <p className="text-sm font-medium">No customers yet</p>
+                <p className="text-sm font-medium">
+                  {debouncedQ ? "No customers match this search" : "No customers yet"}
+                </p>
                 <p className="text-xs text-muted-foreground max-w-xs">
-                  Upload a call list under Data Import to bring customers in.
+                  {debouncedQ
+                    ? "Try a different name, phone or registration number."
+                    : "Upload a call list under Data Import to bring customers in."}
                 </p>
               </div>
             ) : (
@@ -183,9 +169,14 @@ export default function CustomersPage() {
                     {customers.map((c) => (
                       <TableRow key={c.id} className="cursor-pointer">
                         <TableCell>
-                          <Link to={`/customers/${c.id}`} className="flex items-center gap-2.5 group">
+                          <Link
+                            to={`/customers/${c.id}`}
+                            className="flex items-center gap-2.5 group"
+                          >
                             <Avatar className="size-8">
-                              <AvatarFallback className="text-xs">{initials(c.name)}</AvatarFallback>
+                              <AvatarFallback className="text-xs">
+                                {initials(c.name ?? "")}
+                              </AvatarFallback>
                             </Avatar>
 
                             <div className="min-w-0">
@@ -201,25 +192,24 @@ export default function CustomersPage() {
                         </TableCell>
 
                         <TableCell>
-                          <div className="text-sm">{c.vehicle.model}</div>
-
+                          <div className="text-sm">{c.vehicle?.model ?? "—"}</div>
                           <div className="text-xs text-muted-foreground font-mono">
-                            {c.vehicle.regNo}
+                            {c.vehicle?.regNo ?? "—"}
                           </div>
                         </TableCell>
 
                         <TableCell>
                           <span className="capitalize text-xs">
-                            {c.lifecycleStage.replace(/_/g, " ")}
+                            {(c.lifecycleStage ?? "").replace(/_/g, " ") || "—"}
                           </span>
                         </TableCell>
 
                         <TableCell>
-                          <StatusBadge status={c.insurance.status} />
+                          <StatusBadge status={c.insurance?.status ?? "none"} />
                         </TableCell>
 
                         <TableCell>
-                          <StatusBadge status={c.amc.status} />
+                          <StatusBadge status={c.amc?.status ?? "none"} />
                         </TableCell>
 
                         <TableCell className="text-xs text-muted-foreground">
@@ -232,7 +222,6 @@ export default function CustomersPage() {
               </div>
             )}
 
-            {/* Pagination */}
             {total > 0 && (
               <div className="border-t px-4 py-3 text-xs text-muted-foreground flex justify-between items-center">
                 <span>
