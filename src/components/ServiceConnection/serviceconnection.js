@@ -850,6 +850,11 @@ apiClient.interceptors.response.use(
   },
 );
 
+function getListenWsUrl(sessionId) {
+  const wsBase = APL_LINK.replace(/^http/i, "ws");
+  const token = encodeURIComponent(getAuthToken() ?? "");
+  return `${wsBase}api/voice/ws/listen/${sessionId}/?token=${token}`;
+}
 /* =========================================================
    EXPORT
 ========================================================= */
@@ -974,6 +979,7 @@ export {
   // File Methods
   server_upload_file,
   server_download_file,
+  getListenWsUrl,
   // Axios Instance
   apiClient,
 };

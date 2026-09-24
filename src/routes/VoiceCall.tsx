@@ -24,6 +24,7 @@ import { formatDateTime } from "@/lib/format";
 import {
   get_recording_detail,
   server_get_data,
+  server_download_file,
   APL_LINK,
 } from "@/components/ServiceConnection/serviceconnection";
 
@@ -38,15 +39,13 @@ function joinUrl(...parts: string[]): string {
     .join("/");
 }
 
-// Same approach as the recordings library page's getAudioSrc: we don't care
-// about the raw file path on disk, we always stream through recording_audio
-// by numeric id. Empty string (rather than a broken URL) when there's
-// nothing to play, e.g. a call that never got a mixed/stereo file.
-function getAudioSrc(session: any): string {
+// recording_audio is behind @require_auth, so it's fetched with the Bearer
+// header and played from a blob URL. Empty when the call has no file.
+function getAudioUrl(session: any): string {
   if (!session || (!session.recording_mixed && !session.recording_stereo)) {
     return "";
   }
-  return joinUrl(APL_LINK, `/api/recordings/${session.id}/audio/`);
+  return joinUrl(APL_LINK, `/api/recordings/${session.id}/audio/`) + "/";
 }
 
 interface TranscriptTurn {
@@ -56,11 +55,6 @@ interface TranscriptTurn {
   filler?: string;
 }
 
-// CallSession.transcript is a JSON mirror of ConversationTurn — speaker is
-// 'bot' | 'customer'. Mapped the exact same way the recordings library page
-// (_app_agents_recordings_index.tsx / mapRecordingApiToRecording) does it,
-// since that's the one place this shape has already been confirmed against
-// the real backend response.
 function mapTranscript(raw: any): TranscriptTurn[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((t: any) => ({
@@ -77,8 +71,8 @@ function detectedIntents(session: any): string[] {
     new Set(
       session.intent_history
         .map((h: any) => h?.intent)
-        .filter((v: unknown): v is string => typeof v === "string" && v.length > 0)
-    )
+        .filter((v: unknown): v is string => typeof v === "string" && v.length > 0),
+    ),
   );
 }
 
@@ -95,9 +89,6 @@ function formatClockTime(totalSeconds: number): string {
 export default function CallDetailPage() {
   const { callId } = useParams();
 
-  // callId here is the CallSession numeric `id` (recording_detail /
-  // recording_audio both key on pk, NOT the session_id UUID) — see the
-  // fixed links on the Voice index page.
   const [session, setSession] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -114,9 +105,17 @@ export default function CallDetailPage() {
       try {
         const data = await server_get_data(get_recording_detail(callId));
         if (!cancelled) setSession(data);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Failed to load call detail:", err);
-        if (!cancelled) setError("Couldn't load this call.");
+        if (cancelled) return;
+        const status = err?.response?.status;
+        setError(
+          status === 404
+            ? "The call you're looking for doesn't exist or has been removed."
+            : status === 403
+              ? "You don't have permission to view this call."
+              : "Couldn't load this call. Please try again.",
+        );
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -128,10 +127,6 @@ export default function CallDetailPage() {
       cancelled = true;
     };
   }, [callId]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Loading / Not Found                                                      */
-  /* ------------------------------------------------------------------------ */
 
   if (loading) {
     return (
@@ -168,31 +163,31 @@ export default function CallDetailPage() {
 
 function CallDetailContent({ session }: { session: any }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const sessionIdRef = useRef<number | null>(session.id);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(0);
   const [audioError, setAudioError] = useState<string | null>(null);
 
-  // No `src` on the <audio> tag until Play is actually clicked once — same
-  // lazy-load pattern as the recordings library page, so just opening this
-  // page never silently pulls the audio file.
-  const [audioReady, setAudioReady] = useState(false);
+  // Blob URL -- only fetched on the first Play click.
+  const [audioSrc, setAudioSrc] = useState<string | null>(null);
+  const [audioLoading, setAudioLoading] = useState(false);
 
-  const audioSrc = getAudioSrc(session);
+  const audioUrl = getAudioUrl(session);
   const transcript = mapTranscript(session.transcript);
   const intents = detectedIntents(session);
 
   const customerName = session.customer?.name || session.customer?.phone_number || "Unknown";
 
-  // Reset playback state if this ever mounts against a different session
-  // (e.g. navigating call-to-call without unmounting).
   useEffect(() => {
+    sessionIdRef.current = session.id;
     setIsPlaying(false);
     setCurrentTime(0);
     setAudioDuration(0);
     setAudioError(null);
-    setAudioReady(false);
+    setAudioLoading(false);
+    setAudioSrc(null);
 
     const audio = audioRef.current;
     if (audio) {
@@ -201,20 +196,42 @@ function CallDetailContent({ session }: { session: any }) {
     }
   }, [session.id]);
 
-  function togglePlayback() {
+  // Free the blob whenever it's replaced or the page unmounts.
+  useEffect(() => {
+    return () => {
+      if (audioSrc && audioSrc.startsWith("blob:")) URL.revokeObjectURL(audioSrc);
+    };
+  }, [audioSrc]);
+
+  async function togglePlayback() {
     const audio = audioRef.current;
-    if (!audio) return;
+    if (!audio || !audioUrl) return;
 
     if (isPlaying) {
       audio.pause();
       return;
     }
 
-    if (!audioReady) {
-      // First tap on Play — this is the moment the audio file is actually
-      // requested. The effect below fires playback once the <audio>
-      // element has picked up the new src.
-      setAudioReady(true);
+    if (!audioSrc) {
+      const requestedId = session.id;
+      setAudioLoading(true);
+      setAudioError(null);
+      try {
+        const res = await server_download_file(audioUrl);
+        if (sessionIdRef.current !== requestedId) return;
+        setAudioSrc(URL.createObjectURL(res.data));
+      } catch (err: any) {
+        console.error("Failed to load recording audio:", err);
+        if (sessionIdRef.current === requestedId) {
+          setAudioError(
+            err?.response?.status === 404
+              ? "No recording file is available for this call."
+              : "Couldn't load this recording — the file may be unavailable.",
+          );
+        }
+      } finally {
+        if (sessionIdRef.current === requestedId) setAudioLoading(false);
+      }
       return;
     }
 
@@ -223,16 +240,15 @@ function CallDetailContent({ session }: { session: any }) {
     });
   }
 
+  // Auto-play once the blob lands on the <audio> element.
   useEffect(() => {
-    if (!audioReady) return;
-
+    if (!audioSrc) return;
     const audio = audioRef.current;
     if (!audio) return;
-
     void audio.play().catch(() => {
       setAudioError("Couldn't play this recording — the file may be unavailable.");
     });
-  }, [audioReady]);
+  }, [audioSrc]);
 
   function seekTo(ratio: number) {
     const audio = audioRef.current;
@@ -243,27 +259,16 @@ function CallDetailContent({ session }: { session: any }) {
     setCurrentTime(audio.currentTime);
   }
 
-  /* ------------------------------------------------------------------------ */
-  /* Render                                                                   */
-  /* ------------------------------------------------------------------------ */
-
   return (
     <>
       <PageHeader
         title="Call detail"
         breadcrumbs={[
-          {
-            label: "AI Voice Calls",
-            to: "/voice",
-          },
-          {
-            label: `Session #${session.id}`,
-          },
+          { label: "AI Voice Calls", to: "/voice" },
+          { label: `Session #${session.id}` },
         ]}
         actions={
           <>
-            {/* No escalation endpoint exists on the backend yet — this stays
-                UI-only until one is built. */}
             <Button variant="outline" size="sm">
               <AlertTriangle className="size-4" />
               Escalate
@@ -283,35 +288,39 @@ function CallDetailContent({ session }: { session: any }) {
 
       <div className="p-4 md:p-6 lg:p-8 grid gap-4 lg:grid-cols-[1fr_320px]">
         <div className="space-y-4 min-w-0">
-          {/* ---------------------------------------------------------------- */}
-          {/* Audio Player                                                      */}
-          {/* ---------------------------------------------------------------- */}
-
           <Card>
             <CardContent className="py-4 space-y-2">
               <div className="flex items-center gap-3">
                 {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <audio
                   ref={audioRef}
-                  src={audioReady ? audioSrc : undefined}
+                  src={audioSrc ?? undefined}
                   preload="none"
                   onLoadedMetadata={(e) => setAudioDuration(e.currentTarget.duration || 0)}
                   onTimeUpdate={(e) => setCurrentTime(e.currentTarget.currentTime)}
                   onPlay={() => setIsPlaying(true)}
                   onPause={() => setIsPlaying(false)}
                   onEnded={() => setIsPlaying(false)}
-                  onError={() =>
-                    setAudioError("Couldn't load this recording — the file may be unavailable.")
-                  }
+                  onError={() => {
+                    if (audioSrc) {
+                      setAudioError("Couldn't load this recording — the file may be unavailable.");
+                    }
+                  }}
                 />
 
                 <Button
                   size="icon"
                   className="rounded-full size-12"
                   onClick={togglePlayback}
-                  disabled={!audioSrc}
+                  disabled={!audioUrl || audioLoading}
                 >
-                  {isPlaying ? <Pause className="size-5" /> : <Play className="size-5" />}
+                  {audioLoading ? (
+                    <Loader2 className="size-5 animate-spin" />
+                  ) : isPlaying ? (
+                    <Pause className="size-5" />
+                  ) : (
+                    <Play className="size-5" />
+                  )}
                 </Button>
 
                 <div className="flex-1 min-w-0">
@@ -353,7 +362,7 @@ function CallDetailContent({ session }: { session: any }) {
                 </span>
               </div>
 
-              {!audioSrc && (
+              {!audioUrl && (
                 <p className="text-xs text-muted-foreground">
                   No recording is available for this call.
                 </p>
@@ -367,10 +376,6 @@ function CallDetailContent({ session }: { session: any }) {
               )}
             </CardContent>
           </Card>
-
-          {/* ---------------------------------------------------------------- */}
-          {/* Transcript                                                        */}
-          {/* ---------------------------------------------------------------- */}
 
           <Card>
             <CardHeader>
@@ -396,14 +401,12 @@ function CallDetailContent({ session }: { session: any }) {
 
                 return (
                   <div key={i} className={`flex gap-3 ${isAi ? "" : "justify-end"}`}>
-                    {/* AI Avatar */}
                     {isAi && (
                       <div className="size-8 shrink-0 rounded-full ai-gradient ai-border border grid place-items-center text-xs font-bold text-[color:var(--ai)]">
                         AI
                       </div>
                     )}
 
-                    {/* Message */}
                     <div
                       className={`
                           max-w-[75%]
@@ -430,7 +433,6 @@ function CallDetailContent({ session }: { session: any }) {
                       )}
                     </div>
 
-                    {/* Customer Avatar */}
                     {!isAi && (
                       <div className="size-8 shrink-0 rounded-full bg-secondary grid place-items-center text-xs font-bold">
                         {customerName
@@ -447,12 +449,7 @@ function CallDetailContent({ session }: { session: any }) {
           </Card>
         </div>
 
-        {/* ------------------------------------------------------------------ */}
-        {/* Right Sidebar                                                       */}
-        {/* ------------------------------------------------------------------ */}
-
         <aside className="space-y-3">
-          {/* AI Summary */}
           {session.call_summary && (
             <Card className="ai-gradient ai-border">
               <CardHeader>
@@ -466,7 +463,6 @@ function CallDetailContent({ session }: { session: any }) {
             </Card>
           )}
 
-          {/* Disposition */}
           <Card>
             <CardHeader>
               <CardTitle className="text-sm font-display">Disposition</CardTitle>
@@ -488,26 +484,17 @@ function CallDetailContent({ session }: { session: any }) {
 
               <Row k="Language" v={session.language || "—"} />
 
-              <Row
-                k="Quality"
-                v={session.quality_pct != null ? `${session.quality_pct}%` : "—"}
-              />
+              <Row k="Quality" v={session.quality_pct != null ? `${session.quality_pct}%` : "—"} />
 
               <Row
                 k="Cost"
                 v={
-                  typeof session.total_cost === "number"
-                    ? `₹${session.total_cost.toFixed(2)}`
-                    : "—"
+                  typeof session.total_cost === "number" ? `₹${session.total_cost.toFixed(2)}` : "—"
                 }
               />
             </CardContent>
           </Card>
 
-          {/* Detected intents (no free-form "tags" field on the backend —
-              this is the closest real equivalent, derived from
-              intent_history the same way the recordings library page
-              derives it). */}
           {intents.length > 0 && (
             <Card>
               <CardHeader>

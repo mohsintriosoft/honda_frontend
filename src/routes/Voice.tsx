@@ -54,7 +54,7 @@ import {
   server_post_json,
   post_plivo_end_call,
   APL_LINK,
-} from "@/components/ServiceConnection/serviceconnection"; // adjust import path to wherever serviceconnection.js actually lives
+} from "@/components/ServiceConnection/serviceconnection";
 
 /* -------------------------------------------------------------------------- */
 /* Types                                                                       */
@@ -89,7 +89,12 @@ interface DealerMeta {
 }
 
 const LIVE_POLL_MS = 4000;
-const COMPLETED_POLL_MS = 20000;
+
+function apiErrorMessage(err: any, fallback: string) {
+  if (err?.response?.status === 403) return "You don't have permission to do this.";
+  const data = err?.response?.data;
+  return data?.error || fallback;
+}
 
 /* -------------------------------------------------------------------------- */
 /* Page                                                                       */
@@ -97,16 +102,9 @@ const COMPLETED_POLL_MS = 20000;
 
 export default function VoicePage() {
   const [live, setLive] = useState<RecordingRow[]>([]);
-  const [completed, setCompleted] = useState<RecordingRow[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
-  const [completedLoading, setCompletedLoading] = useState(true);
+  const [liveError, setLiveError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-
-  /* ---------------------------------------------------------------------- */
-  /* Live calls — polled. A call disappears from this list the moment its   */
-  /* status moves out of initiated/ringing/ongoing (completed/failed/etc),  */
-  /* since the next poll's filter simply won't include it anymore.         */
-  /* ---------------------------------------------------------------------- */
 
   const fetchLive = useCallback(async () => {
     try {
@@ -115,43 +113,20 @@ export default function VoicePage() {
         page_size: 50,
       });
       setLive(res?.results ?? []);
+      setLiveError(null);
     } catch (err) {
       console.error("Failed to fetch live calls:", err);
+      setLiveError(apiErrorMessage(err, "Couldn't load live calls."));
     } finally {
       setLiveLoading(false);
     }
   }, []);
 
-  /* ---------------------------------------------------------------------- */
-  /* Completed calls — first page, refreshed on a slower interval          */
-  /* ---------------------------------------------------------------------- */
-
-  const fetchCompleted = useCallback(async () => {
-    try {
-      const res = await server_get_data(get_recordings, {
-        status: "completed",
-        page_size: 25,
-      });
-      setCompleted(res?.results ?? []);
-    } catch (err) {
-      console.error("Failed to fetch completed calls:", err);
-    } finally {
-      setCompletedLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     fetchLive();
-    fetchCompleted();
-
     const liveTimer = setInterval(fetchLive, LIVE_POLL_MS);
-    const completedTimer = setInterval(fetchCompleted, COMPLETED_POLL_MS);
-
-    return () => {
-      clearInterval(liveTimer);
-      clearInterval(completedTimer);
-    };
-  }, [fetchLive, fetchCompleted]);
+    return () => clearInterval(liveTimer);
+  }, [fetchLive]);
 
   return (
     <>
@@ -173,19 +148,14 @@ export default function VoicePage() {
               <span className="size-1.5 rounded-full bg-[color:var(--success)] animate-pulse" />
               Live ({live.length})
             </TabsTrigger>
-
-            {/* <TabsTrigger value="completed">Completed ({completed.length})</TabsTrigger>
-
-            <TabsTrigger value="recordings">Recordings</TabsTrigger> */}
           </TabsList>
 
-          {/* LIVE */}
           <TabsContent value="live" className="mt-4 space-y-2">
-            {liveLoading && (
-              <p className="text-sm text-muted-foreground">Loading live calls…</p>
-            )}
+            {liveLoading && <p className="text-sm text-muted-foreground">Loading live calls…</p>}
 
-            {!liveLoading && live.length === 0 && (
+            {!liveLoading && liveError && <p className="text-sm text-destructive">{liveError}</p>}
+
+            {!liveLoading && !liveError && live.length === 0 && (
               <p className="text-sm text-muted-foreground">No live calls right now.</p>
             )}
 
@@ -193,127 +163,29 @@ export default function VoicePage() {
               <LiveCallCard key={c.session_id} call={c} onEnded={fetchLive} />
             ))}
           </TabsContent>
-
-          {/* COMPLETED */}
-          {/* <TabsContent value="completed" className="mt-4">
-            <Card>
-              <CardContent className="p-0">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Intent</TableHead>
-                      <TableHead>Disposition</TableHead>
-                      <TableHead>Confidence</TableHead>
-                      <TableHead>Duration</TableHead>
-                      <TableHead>When</TableHead>
-                    </TableRow>
-                  </TableHeader>
-
-                  <TableBody>
-                    {completedLoading && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-sm text-muted-foreground text-center py-6">
-                          Loading completed calls…
-                        </TableCell>
-                      </TableRow>
-                    )}
-
-                    {!completedLoading && completed.length === 0 && (
-                      <TableRow>
-                        <TableCell colSpan={6} className="text-sm text-muted-foreground text-center py-6">
-                          No completed calls yet.
-                        </TableCell>
-                      </TableRow>
-                    )}
-
-                    {completed.map((c) => (
-                      <TableRow key={c.session_id}>
-                        <TableCell>
-                          <Link
-                            to={`/voice/${c.id}`}
-                            className="font-medium text-sm hover:text-primary"
-                          >
-                            {c.customer?.name || "Unknown"}
-                          </Link>
-                        </TableCell>
-
-                        <TableCell className="text-sm">{c.segment?.name || "—"}</TableCell>
-
-                        <TableCell>
-                          <StatusBadge status={c.final_intent_code || c.status} />
-                        </TableCell>
-
-                        <TableCell className="text-sm tabular-nums">
-                          {c.quality_pct != null ? `${c.quality_pct}%` : "—"}
-                        </TableCell>
-
-                        <TableCell className="text-xs tabular-nums">
-                          {c.duration_seconds != null
-                            ? `${Math.floor(c.duration_seconds / 60)}m ${c.duration_seconds % 60}s`
-                            : "—"}
-                        </TableCell>
-
-                        <TableCell className="text-xs text-muted-foreground">
-                          {c.started_at_ist ? formatRelative(c.started_at_ist) : "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </CardContent>
-            </Card>
-          </TabsContent> */}
-
-          {/* RECORDINGS */}
-          {/* <TabsContent value="recordings" className="mt-4">
-            <RecordingsLibraryTab />
-          </TabsContent> */}
         </Tabs>
       </div>
 
-      <AddCallCustomerDialog
-        open={dialogOpen}
-        onOpenChange={setDialogOpen}
-        onCalled={fetchLive}
-      />
+      <AddCallCustomerDialog open={dialogOpen} onOpenChange={setDialogOpen} onCalled={fetchLive} />
     </>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/* Live call card                                                             */
-/* -------------------------------------------------------------------------- */
-
-/* -------------------------------------------------------------------------- */
 /* Real-time call monitoring                                                  */
-/*                                                                            */
-/* Backed by call_listener.py's CallListenConsumer, which relays every raw   */
-/* PCM frame PlivoDialerConsumer sends/receives (dialer.py:                  */
-/* _broadcast_live_audio) to a Channels group keyed by session_id. Frames    */
-/* are 16-bit signed little-endian PCM, mono, at `sample_rate` Hz (8000) —   */
-/* the exact same bytes Plivo itself streams, just relayed. There's no       */
-/* container/codec, so playback is done manually via the Web Audio API      */
-/* rather than an <audio> element.                                          */
 /* -------------------------------------------------------------------------- */
 
 function getListenWsUrl(sessionId: string): string {
-  // APL_LINK is an http(s) base ("https://host/") used everywhere else as
-  // APL_LINK + "api/...". Same base, ws(s) scheme, same path shape.
   const wsBase = APL_LINK.replace(/^http/i, "ws");
   return `${wsBase}api/voice/ws/listen/${sessionId}/`;
 }
 
-// Decodes one base64 PCM16 frame and schedules it back-to-back (per
-// source) on the given AudioContext, so "user" and "bot" each play as a
-// continuous stream and both are audible together (Web Audio sums
-// everything routed to the same destination).
 function scheduleLivePcmFrame(
   ctx: AudioContext,
   cursors: { user: number; bot: number },
   source: "user" | "bot",
   sampleRate: number,
-  base64Payload: string
+  base64Payload: string,
 ) {
   const binary = atob(base64Payload);
   const bytes = new Uint8Array(binary.length);
@@ -332,8 +204,6 @@ function scheduleLivePcmFrame(
   node.buffer = buffer;
   node.connect(ctx.destination);
 
-  // Never schedule in the past, and never let one source's cursor drift
-  // arbitrarily far ahead if frames arrive faster than real-time.
   const startAt = Math.max(cursors[source], ctx.currentTime);
   node.start(startAt);
   cursors[source] = startAt + buffer.duration;
@@ -378,11 +248,13 @@ function useLiveAudioListener(sessionId: string) {
     ws.onclose = (evt) => {
       setListening(false);
       setConnecting(false);
-      // 4500 == call_listener.py's CallListenConsumer closing immediately
-      // because CHANNEL_LAYERS isn't configured on the backend yet.
-      if (evt.code === 4500) {
-        setError("Live audio isn't configured on the server yet (CHANNEL_LAYERS missing).");
-      }
+      const messages: Record<number, string> = {
+        4500: "Live audio isn't configured on the server yet (CHANNEL_LAYERS missing).",
+        4401: "Your session has expired — sign in again to listen.",
+        4403: "Your role can't monitor live calls.",
+        4404: "This call is no longer available to monitor.",
+      };
+      if (messages[evt.code]) setError(messages[evt.code]);
     };
     ws.onmessage = (evt) => {
       try {
@@ -401,8 +273,6 @@ function useLiveAudioListener(sessionId: string) {
     else start();
   }
 
-  // Always tear down the socket/AudioContext if the card unmounts (e.g.
-  // the call drops off the Live list) while still listening.
   useEffect(() => stop, []);
 
   return { listening, connecting, error, toggle };
@@ -414,12 +284,16 @@ function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => vo
   const [ending, setEnding] = useState(false);
   const [endError, setEndError] = useState<string | null>(null);
 
-  const { listening, connecting, error: listenError, toggle: toggleListen } =
-    useLiveAudioListener(call.session_id);
+  const {
+    listening,
+    connecting,
+    error: listenError,
+    toggle: toggleListen,
+  } = useLiveAudioListener(call.session_id);
 
   async function handleEndCall() {
     const confirmed = window.confirm(
-      `End the live call with ${name} now? This hangs up immediately.`
+      `End the live call with ${name} now? This hangs up immediately.`,
     );
     if (!confirmed) return;
 
@@ -427,23 +301,17 @@ function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => vo
     setEndError(null);
 
     try {
-      // views_voice.plivo_end_call keys off the CallSession UUID
-      // (session_id), not the numeric id — and 404s with a human-readable
-      // error if the call already ended or was never tracked as live.
       const res = await server_post_json(post_plivo_end_call, {
         session_id: call.session_id,
       });
-
       if (!res?.success) {
         setEndError(res?.error || "Couldn't end this call.");
       }
     } catch (err) {
       console.error("Failed to end call:", err);
-      setEndError("Something went wrong ending this call.");
+      setEndError(apiErrorMessage(err, "Something went wrong ending this call."));
     } finally {
       setEnding(false);
-      // Refresh either way — if the call already dropped server-side,
-      // this is what clears it off the Live list.
       onEnded();
     }
   }
@@ -472,12 +340,9 @@ function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => vo
               )}
             </div>
 
-            <div className="text-xs text-muted-foreground">
-              {call.segment?.name || "—"}
-            </div>
+            <div className="text-xs text-muted-foreground">{call.segment?.name || "—"}</div>
           </div>
 
-          {/* Audio waveform (purely decorative while a call is live) */}
           <div className="hidden md:flex items-center gap-0.5 h-8">
             {Array.from({ length: 28 }).map((_, i) => (
               <span
@@ -509,17 +374,8 @@ function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => vo
             {listening ? "Stop" : "Listen live"}
           </Button>
 
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={handleEndCall}
-            disabled={ending}
-          >
-            {ending ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <PhoneOff className="size-4" />
-            )}
+          <Button size="sm" variant="destructive" onClick={handleEndCall} disabled={ending}>
+            {ending ? <Loader2 className="size-4 animate-spin" /> : <PhoneOff className="size-4" />}
             End call
           </Button>
         </div>
@@ -533,19 +389,13 @@ function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => vo
 }
 
 /* -------------------------------------------------------------------------- */
-/* Recordings library — search + status filter, backed live by              */
-/* GET /api/recordings/ (views_admin.recordings). Only fetches once this     */
-/* tab is actually opened, since Radix unmounts inactive TabsContent.        */
+/* Recordings library (tab currently not rendered)                            */
 /* -------------------------------------------------------------------------- */
 
 const RECORDING_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "completed", label: "Completed" },
-  { value: "failed", label: "Failed" },
-  { value: "busy", label: "Busy" },
-  { value: "no_answer", label: "No answer" },
-  { value: "cancelled", label: "Cancelled" },
   { value: "dropped", label: "Dropped" },
-  { value: "initiated", label: "Initiated" },
+  { value: "declined", label: "Declined" },
   { value: "ringing", label: "Ringing" },
   { value: "ongoing", label: "Ongoing" },
 ];
@@ -563,8 +413,6 @@ function RecordingsLibraryTab() {
   const [count, setCount] = useState(0);
   const [hasMore, setHasMore] = useState(false);
 
-  // Guards against a slow earlier request overwriting a newer one when the
-  // user types quickly or flips the filter mid-request.
   const requestSeq = useRef(0);
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -581,7 +429,7 @@ function RecordingsLibraryTab() {
           ...(filters.status ? { status: filters.status } : {}),
         });
 
-        if (seq !== requestSeq.current) return; // superseded by a newer request
+        if (seq !== requestSeq.current) return;
 
         const results: RecordingRow[] = res?.results ?? [];
         setRows((prev) => (append ? [...prev, ...results] : results));
@@ -597,10 +445,9 @@ function RecordingsLibraryTab() {
         }
       }
     },
-    []
+    [],
   );
 
-  // Initial load, and any time the status filter changes.
   useEffect(() => {
     fetchPage(1, { search, status }, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -634,10 +481,7 @@ function RecordingsLibraryTab() {
             />
           </div>
 
-          <Select
-            value={status || "all"}
-            onValueChange={(v) => setStatus(v === "all" ? "" : v)}
-          >
+          <Select value={status || "all"} onValueChange={(v) => setStatus(v === "all" ? "" : v)}>
             <SelectTrigger className="sm:w-44">
               <SelectValue placeholder="All statuses" />
             </SelectTrigger>
@@ -685,10 +529,7 @@ function RecordingsLibraryTab() {
               rows.map((r) => (
                 <TableRow key={r.session_id}>
                   <TableCell>
-                    <Link
-                      to={`/voice/${r.id}`}
-                      className="font-medium text-sm hover:text-primary"
-                    >
+                    <Link to={`/voice/${r.id}`} className="font-medium text-sm hover:text-primary">
                       {r.customer?.name || r.customer?.phone_number || "Unknown"}
                     </Link>
                   </TableCell>
@@ -761,11 +602,7 @@ interface FoundCustomer {
   vehicles: VehicleHit[];
 }
 
-// Same 6/7/8/9-start, 10-digit rule the backend enforces (_norm_phone) —
-// checked client-side too so Find/Save fail fast with a useful message.
 const PHONE_RE = /^[6-9]\d{9}$/;
-// Same allowed-characters rule as _clean_name (letters, space, . - ',
-// Devanagari included). Empty is fine — name is optional.
 const NAME_RE = /^[A-Za-z\u0900-\u097F][A-Za-z\u0900-\u097F .'-]*$/;
 
 function AddCallCustomerDialog({
@@ -786,8 +623,6 @@ function AddCallCustomerDialog({
   const [dealerId, setDealerId] = useState<string>("");
   const [branchId, setBranchId] = useState<string>("");
 
-  // Vehicle Details — all optional, same as quick_call.html ("khali chhodo
-  // to sirf customer save hoga").
   const [vehicleName, setVehicleName] = useState("");
   const [lastServiceDate, setLastServiceDate] = useState("");
   const [dueDate, setDueDate] = useState("");
@@ -797,31 +632,35 @@ function AddCallCustomerDialog({
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
   const [lookupMsg, setLookupMsg] = useState<{ kind: "ok" | "info" | "err"; text: string } | null>(
-    null
+    null,
   );
 
   const [submitting, setSubmitting] = useState<"call" | "quickcall" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   const metaLoaded = useRef(false);
+
+  // The dealer list is scoped to the caller's own dealer -- with one entry
+  // there's nothing to choose, so pre-select it.
+  const defaultDealerId = dealers.length === 1 ? String(dealers[0].id) : "";
 
   useEffect(() => {
     if (!open || metaLoaded.current) return;
 
     setMetaLoading(true);
-    Promise.all([
-      server_get_data(get_quick_call_meta),
-      server_get_data(get_segments),
-    ])
+    Promise.all([server_get_data(get_quick_call_meta), server_get_data(get_segments)])
       .then(([metaRes, segRes]) => {
-        setDealers(metaRes?.dealers ?? []);
+        const list: DealerMeta[] = metaRes?.dealers ?? [];
+        setDealers(list);
         setSegments(segRes?.segments ?? []);
+        if (list.length === 1) setDealerId(String(list[0].id));
         metaLoaded.current = true;
       })
       .catch((err) => {
         console.error("Failed to load dealer/branch/segment meta:", err);
-        setError("Couldn't load dealers/branches/segments. Try again.");
+        setError(apiErrorMessage(err, "Couldn't load dealers/branches/segments. Try again."));
       })
       .finally(() => setMetaLoading(false));
   }, [open]);
@@ -829,7 +668,7 @@ function AddCallCustomerDialog({
   function resetForm() {
     setName("");
     setPhone("");
-    setDealerId("");
+    setDealerId(defaultDealerId);
     setBranchId("");
     setVehicleName("");
     setLastServiceDate("");
@@ -839,6 +678,7 @@ function AddCallCustomerDialog({
     setSelectedVehicleId(null);
     setLookupMsg(null);
     setError(null);
+    setWarning(null);
     setSuccessMsg(null);
   }
 
@@ -848,13 +688,6 @@ function AddCallCustomerDialog({
   }
 
   const selectedDealer = dealers.find((d) => String(d.id) === dealerId);
-
-  /* -------------------------------------------------------------------- */
-  /* Find by phone — existing-customer lookup, same endpoint quick_call's */
-  /* "Find" button uses. Autofills name/dealer/branch and lists existing  */
-  /* vehicles so the admin can pick one to update instead of adding a new */
-  /* one.                                                                 */
-  /* -------------------------------------------------------------------- */
 
   async function handleFindByPhone() {
     if (!PHONE_RE.test(phone)) {
@@ -896,7 +729,7 @@ function AddCallCustomerDialog({
       });
     } catch (err) {
       console.error("Customer lookup failed:", err);
-      setLookupMsg({ kind: "err", text: "Couldn't reach the lookup API." });
+      setLookupMsg({ kind: "err", text: apiErrorMessage(err, "Couldn't reach the lookup API.") });
     } finally {
       setLookupLoading(false);
     }
@@ -914,11 +747,6 @@ function AddCallCustomerDialog({
     setDueDate("");
     setSegmentId("");
   }
-
-  /* -------------------------------------------------------------------- */
-  /* Save — mirrors quick_call.html's save(): quick_call_save first, then */
-  /* (only if any vehicle field was touched) quick_vehicle_save.          */
-  /* -------------------------------------------------------------------- */
 
   async function saveCustomer() {
     setError(null);
@@ -951,7 +779,6 @@ function AddCallCustomerDialog({
     return res;
   }
 
-  // Returns { ok: true } | { ok: false, error } | null (nothing to save).
   async function saveVehicleIfNeeded(customerId: number) {
     const wantsVehicle = Boolean(vehicleName || lastServiceDate || dueDate || segmentId);
     if (!wantsVehicle) return null;
@@ -970,14 +797,21 @@ function AddCallCustomerDialog({
       return { ok: false as const, error: res?.error || "Failed to save vehicle." };
     }
     if (res.vehicle_id) setSelectedVehicleId(String(res.vehicle_id));
+    if (res.segment_warning) setWarning(res.segment_warning);
     return { ok: true as const, segment: res.segment as string | null };
   }
 
-  /* -------------------------------------------------------------------- */
-  /* Quick call — customer was already found via "Find", so just place    */
-  /* the call directly against that existing record. No save step needed */
-  /* since nothing about the customer changed.                            */
-  /* -------------------------------------------------------------------- */
+  async function placeCall(customerId: number, label: string) {
+    const callRes = await server_post_json(post_plivo_call, { customer_id: customerId });
+    if (!callRes?.success) {
+      setError(callRes?.error || "Call could not be placed.");
+      return false;
+    }
+    setSuccessMsg(`Calling ${label}…`);
+    onCalled();
+    setTimeout(() => handleOpenChange(false), 900);
+    return true;
+  }
 
   async function handleQuickCall() {
     if (!foundCustomer) return;
@@ -985,23 +819,10 @@ function AddCallCustomerDialog({
     setSubmitting("quickcall");
     setError(null);
     try {
-      const callRes = await server_post_json(post_plivo_call, {
-        customer_id: foundCustomer.id,
-        to: foundCustomer.phone_number,
-      });
-
-      if (!callRes?.success) {
-        setError(callRes?.error || "Call could not be placed.");
-        return;
-      }
-
-      setSuccessMsg(`Calling ${foundCustomer.name || foundCustomer.phone_number}…`);
-      onCalled();
-
-      setTimeout(() => handleOpenChange(false), 900);
+      await placeCall(foundCustomer.id, foundCustomer.name || foundCustomer.phone_number);
     } catch (err) {
       console.error("Quick call failed:", err);
-      setError("Something went wrong placing the call.");
+      setError(apiErrorMessage(err, "Something went wrong placing the call."));
     } finally {
       setSubmitting(null);
     }
@@ -1013,32 +834,20 @@ function AddCallCustomerDialog({
       const saved = await saveCustomer();
       if (!saved) return;
 
-      const vehicleRes = await saveVehicleIfNeeded(saved.customer_id);
-      if (vehicleRes && !vehicleRes.ok) {
-        setError(`Vehicle not saved: ${vehicleRes.error} — calling anyway.`);
-      }
-
-      // views_voice.plivo_call only reads `customer_id` (or `to`) from the
-      // body — it looks up the customer's phone_number itself and doesn't
-      // take dealer_id/branch_id. It replies {success, session_id, ...} or
-      // {success: false, error} on failure — not `ok`.
-      const callRes = await server_post_json(post_plivo_call, {
-        customer_id: saved.customer_id,
-        to: saved.phone_number,
-      });
-
-      if (!callRes?.success) {
-        setError(callRes?.error || "Call could not be placed.");
+      if (saved.do_not_call) {
+        setError("This customer is marked Do-Not-Call — the call was not placed.");
         return;
       }
 
-      setSuccessMsg(`Calling ${saved.name || saved.phone_number}…`);
-      onCalled();
+      const vehicleRes = await saveVehicleIfNeeded(saved.customer_id);
+      if (vehicleRes && !vehicleRes.ok) {
+        setWarning(`Vehicle not saved: ${vehicleRes.error} — calling anyway.`);
+      }
 
-      setTimeout(() => handleOpenChange(false), 900);
+      await placeCall(saved.customer_id, saved.name || saved.phone_number);
     } catch (err) {
       console.error("Call customer failed:", err);
-      setError("Something went wrong placing the call.");
+      setError(apiErrorMessage(err, "Something went wrong placing the call."));
     } finally {
       setSubmitting(null);
     }
@@ -1052,10 +861,6 @@ function AddCallCustomerDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* ---------------------------------------------------------- */}
-          {/* Customer                                                    */}
-          {/* ---------------------------------------------------------- */}
-
           <div className="space-y-3">
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
               Customer
@@ -1131,11 +936,7 @@ function AddCallCustomerDialog({
                   {lookupLoading ? <Loader2 className="size-4 animate-spin" /> : "Find"}
                 </Button>
                 {foundCustomer && (
-                  <Button
-                    type="button"
-                    onClick={handleQuickCall}
-                    disabled={submitting !== null}
-                  >
+                  <Button type="button" onClick={handleQuickCall} disabled={submitting !== null}>
                     {submitting === "quickcall" ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : (
@@ -1165,12 +966,13 @@ function AddCallCustomerDialog({
 
             {lookupMsg && (
               <p
-                className={`text-sm ${lookupMsg.kind === "err"
-                  ? "text-destructive"
-                  : lookupMsg.kind === "ok"
-                    ? "text-[color:var(--success)]"
-                    : "text-muted-foreground"
-                  }`}
+                className={`text-sm ${
+                  lookupMsg.kind === "err"
+                    ? "text-destructive"
+                    : lookupMsg.kind === "ok"
+                      ? "text-[color:var(--success)]"
+                      : "text-muted-foreground"
+                }`}
               >
                 {lookupMsg.text}
               </p>
@@ -1187,10 +989,11 @@ function AddCallCustomerDialog({
                       key={v.id}
                       type="button"
                       onClick={() => handlePickVehicle(v)}
-                      className={`text-xs rounded-full px-2 py-1 border ${selectedVehicleId === String(v.id)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-secondary text-secondary-foreground"
-                        }`}
+                      className={`text-xs rounded-full px-2 py-1 border ${
+                        selectedVehicleId === String(v.id)
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-secondary text-secondary-foreground"
+                      }`}
                     >
                       {v.vehicle_name || v.registration_no || `#${v.id}`}
                     </button>
@@ -1208,10 +1011,6 @@ function AddCallCustomerDialog({
               </div>
             )}
           </div>
-
-          {/* ---------------------------------------------------------- */}
-          {/* Vehicle Details — optional                                  */}
-          {/* ---------------------------------------------------------- */}
 
           <div className="space-y-3 border-t pt-3">
             <div className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
@@ -1275,14 +1074,15 @@ function AddCallCustomerDialog({
                   onChange={(e) => setDueDate(e.target.value)}
                 />
                 <p className="text-xs text-muted-foreground">
-                  Feeds the dialer's due_date context directly — leave blank to
-                  auto-calculate from Last Service Date instead
+                  Feeds the dialer's due_date context directly — leave blank to auto-calculate from
+                  Last Service Date instead
                 </p>
               </div>
             </div>
           </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
+          {warning && <p className="text-sm text-amber-600">{warning}</p>}
           {successMsg && <p className="text-sm text-[color:var(--success)]">{successMsg}</p>}
         </div>
 

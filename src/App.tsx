@@ -34,6 +34,8 @@ import IntentDetails from "./routes/IntentDetails";
 import KnowledgeGlobal from "./routes/KnowledgeGlobal";
 import Segments from "./routes/Segments";
 import SegmentDetails from "./routes/SegmentDetails";
+import Voice from "./routes/Voice";
+import VoiceCall from "./routes/VoiceCall";
 
 
 
@@ -46,8 +48,6 @@ import SegmentDetails from "./routes/SegmentDetails";
 
 
 
-import Voice from "./routes/_app.voice.index";
-import VoiceCall from "./routes/_app.voice.$callId";
 import OmHondaChunks from "./routes/omhondachunks";
 
 import WhatsApp from "./routes/_app.whatsapp.index";
