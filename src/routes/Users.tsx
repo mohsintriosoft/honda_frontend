@@ -44,7 +44,22 @@ import {
   get_roles,
   post_role,
   role_url,
+  getStaffUser,
+  setAuthSession,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
+
+// Keeps the stored login user's rights in step with the server, so the
+// sidebar/route guards update right after someone edits their own role.
+function syncStoredPermissions(perms: string[]) {
+  const user = getStaffUser();
+  const token = localStorage.getItem("access_token");
+  if (!user || !token) return;
+  const current = Array.isArray(user.permissions) ? [...user.permissions].sort() : [];
+  const next = [...perms].sort();
+  if (current.join(",") === next.join(",")) return;
+  setAuthSession(token, { ...user, permissions: perms });
+}
 
 type StaffRow = {
   id: number;
@@ -104,6 +119,9 @@ const emptyInviteForm = {
 const emptyRoleForm = { name: "", description: "", permissions: [] as string[] };
 
 export default function UsersPage() {
+  // A roles-only admin can open this page but can't list users.
+  const canViewUsers = hasPerm("users.view", "users.manage");
+
   const [users, setUsers] = useState<StaffRow[] | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
   const [catalog, setCatalog] = useState<PermissionDef[]>([]);
@@ -144,7 +162,7 @@ export default function UsersPage() {
     setError(null);
 
     const [usersRes, rolesRes, branchesRes] = await Promise.allSettled([
-      server_get_data(get_users),
+      canViewUsers ? server_get_data(get_users) : Promise.resolve({ results: [] }),
       server_get_data(get_roles),
       server_get_data(get_branches),
     ]);
@@ -160,7 +178,9 @@ export default function UsersPage() {
     if (rolesRes.status === "fulfilled") {
       setRoles(rolesRes.value?.roles ?? []);
       setCatalog(rolesRes.value?.catalog ?? []);
-      setMyPerms(rolesRes.value?.my_permissions ?? []);
+      const perms: string[] = rolesRes.value?.my_permissions ?? [];
+      setMyPerms(perms);
+      syncStoredPermissions(perms);
     }
 
     if (branchesRes.status === "fulfilled") {
@@ -339,9 +359,9 @@ export default function UsersPage() {
           </div>
         )}
 
-        <Tabs defaultValue="users">
+        <Tabs defaultValue={canViewUsers ? "users" : "roles"}>
           <TabsList>
-            <TabsTrigger value="users">Users</TabsTrigger>
+            {canViewUsers && <TabsTrigger value="users">Users</TabsTrigger>}
             <TabsTrigger value="roles">Roles & rights</TabsTrigger>
           </TabsList>
 

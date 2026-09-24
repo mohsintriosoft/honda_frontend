@@ -63,6 +63,7 @@ import {
     server_post_data,
     server_upload_file,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 
 /* =========================================================
    TYPES — mirror _serialize_csv_stats() in views_import.py
@@ -474,6 +475,8 @@ function DeleteDialog({
 ========================================================= */
 
 function SchedulerTimeCard() {
+    // Viewing needs imports.manage; changing it is a campaign/system setting.
+    const canSave = hasPerm("campaigns.edit", "settings.manage");
     const [value, setValue] = useState<string>("");
     const [loading, setLoading] = useState(true);
     const [forbidden, setForbidden] = useState(false);
@@ -533,12 +536,15 @@ function SchedulerTimeCard() {
                             type="time"
                             value={value}
                             onChange={(e) => setValue(e.target.value)}
+                            disabled={!canSave}
                             className="w-32"
                         />
-                        <Button onClick={handleSave} disabled={saving || !value} className="gap-2">
-                            {saving && <Loader2 className="size-4 animate-spin" />}
-                            {saving ? "Saving…" : "Save"}
-                        </Button>
+                        {canSave && (
+                            <Button onClick={handleSave} disabled={saving || !value} className="gap-2">
+                                {saving && <Loader2 className="size-4 animate-spin" />}
+                                {saving ? "Saving…" : "Save"}
+                            </Button>
+                        )}
                         {saved && (
                             <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
                                 <CheckCircle2 className="size-3.5" /> Saved

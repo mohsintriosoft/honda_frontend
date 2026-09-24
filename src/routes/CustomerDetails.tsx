@@ -35,6 +35,7 @@ import {
   get_customer_detail,
   server_get_data,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 
 interface ApiVehicle {
   model: string;
@@ -220,10 +221,12 @@ export default function CustomerDetailPage() {
         breadcrumbs={[{ label: "Customer 360", to: "/customers" }, { label: c.name }]}
         actions={
           <>
-            <Button variant="outline" size="sm">
-              <Phone className="size-4" />
-              Call
-            </Button>
+            {hasPerm("calls.place") && (
+              <Button variant="outline" size="sm">
+                <Phone className="size-4" />
+                Call
+              </Button>
+            )}
 
             <Button variant="outline" size="sm">
               <MessageSquare className="size-4" />

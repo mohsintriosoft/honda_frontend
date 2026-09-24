@@ -40,6 +40,7 @@ import {
   server_post_data,
   server_patch_data,
 } from "@/components/ServiceConnection/serviceconnection";
+import { hasPerm } from "@/lib/permissions";
 
 // Campaign.call_days: 0=Monday…6=Sunday (NOT JS Date's 0=Sunday).
 const DAYS = [
@@ -134,6 +135,8 @@ function apiErrorMessage(err: any, fallback: string) {
 
 export default function CampaignDetailPage() {
   const { id } = useParams();
+  const canEdit = hasPerm("campaigns.edit");
+  const canViewCalls = hasPerm("calls.view");
 
   const [campaign, setCampaign] = useState<ApiCampaign | null>(null);
   const [history, setHistory] = useState<CampaignBatch[]>([]);
@@ -203,9 +206,11 @@ export default function CampaignDetailPage() {
       })
       .finally(() => setLoading(false));
 
-    server_get_data(get_recordings, { campaign: id, page_size: 10 })
-      .then((res) => setCalls(res?.results ?? []))
-      .catch(() => setCalls([]));
+    if (canViewCalls) {
+      server_get_data(get_recordings, { campaign: id, page_size: 10 })
+        .then((res) => setCalls(res?.results ?? []))
+        .catch(() => setCalls([]));
+    }
   };
 
   useEffect(() => {
@@ -390,7 +395,7 @@ export default function CampaignDetailPage() {
         breadcrumbs={[{ label: "Campaigns", to: "/campaigns" }, { label: c.name }]}
         actions={
           <>
-            {c.is_active ? (
+            {canEdit && (c.is_active ? (
               <>
                 <Button
                   variant="outline"
@@ -427,7 +432,7 @@ export default function CampaignDetailPage() {
                 <Play className="size-4" />
                 Resume
               </Button>
-            )}
+            ))}
 
             <Button variant="ghost" size="icon" onClick={load} disabled={actionPending}>
               <RefreshCcw className="size-4" />
@@ -546,18 +551,21 @@ export default function CampaignDetailPage() {
               )}
               {saveError && <span className="text-xs text-destructive">{saveError}</span>}
 
-              <Button
-                size="sm"
-                onClick={saveSettings}
-                disabled={(!dirty && !segmentDirty) || saving}
-              >
-                <Save className="size-4" />
-                {saving ? "Saving…" : "Save"}
-              </Button>
+              {canEdit && (
+                <Button
+                  size="sm"
+                  onClick={saveSettings}
+                  disabled={(!dirty && !segmentDirty) || saving}
+                >
+                  <Save className="size-4" />
+                  {saving ? "Saving…" : "Save"}
+                </Button>
+              )}
             </div>
           </CardHeader>
 
           <CardContent className="grid gap-4 md:grid-cols-2">
+            <fieldset disabled={!canEdit} className="contents">
             <div>
               <Label>Branch</Label>
               <select
@@ -671,6 +679,7 @@ export default function CampaignDetailPage() {
                 </p>
               </div>
             )}
+            </fieldset>
           </CardContent>
         </Card>
 

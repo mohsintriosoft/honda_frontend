@@ -22,6 +22,7 @@ import {
   get_segment_customers,
   server_get_data,
 } from "@/components/ServiceConnection/serviceconnection";
+import { canAccessPath, hasPerm } from "@/lib/permissions";
 
 interface ApiSegment {
   id: number;
@@ -56,6 +57,7 @@ const CUSTOMERS_PAGE_SIZE = 20;
 
 export default function SegmentDetailPage() {
   const { id } = useParams();
+  const canSeeCustomers = hasPerm("customers.view", "campaigns.edit");
 
   const [segment, setSegment] = useState<ApiSegment | null>(null);
   const [loading, setLoading] = useState(true);
@@ -106,7 +108,7 @@ export default function SegmentDetailPage() {
   }, [id]);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !canSeeCustomers) return;
 
     let cancelled = false;
     setCustomersLoading(true);
@@ -129,7 +131,7 @@ export default function SegmentDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, customersPage]);
+  }, [id, customersPage, canSeeCustomers]);
 
   if (notFound) {
     return <Navigate to="/segments" replace />;
@@ -164,7 +166,7 @@ export default function SegmentDetailPage() {
         description={segment.description ?? undefined}
         breadcrumbs={[{ label: "Segments", to: "/segments" }, { label: segment.name }]}
         actions={
-          segment.campaign_id != null ? (
+          segment.campaign_id != null && canAccessPath("/campaigns") ? (
             <Button size="sm" asChild>
               <Link to={`/campaigns/${segment.campaign_id}`}>
                 <Megaphone className="size-4" />
@@ -187,6 +189,7 @@ export default function SegmentDetailPage() {
           <MetricTile label="Active campaign" value={segment.active_campaign ?? "—"} />
         </div>
 
+        {canSeeCustomers && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base font-display">Customers in this segment</CardTitle>
@@ -309,6 +312,7 @@ export default function SegmentDetailPage() {
             )}
           </CardContent>
         </Card>
+        )}
       </div>
     </>
   );

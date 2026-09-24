@@ -14,8 +14,8 @@ import {
   clearAuthSession,
 } from "@/components/ServiceConnection/serviceconnection";
 import { AuthProvider } from "@/context/AuthContext";
-import { canAccessPath, getPermissions, landingPath } from "@/lib/permissions";
-
+import { canAccessPath, getPermissions, hasPerm, landingPath } from "@/lib/permissions";
+import OmHondaChunks from "./routes/omhondachunks";
 import Home from "./routes/index";
 import Agents from "./routes/Agents";
 import AgentDetails from "./routes/AgentDetails";
@@ -42,11 +42,11 @@ import Health from "./routes/Health";
 import Callbacks from "./routes/Callbacks";
 import Login from "./routes/login";
 import Dashboard from "./routes/Dashboard";
+import Users from "./routes/Users";
+import Settings from "./routes/Settings";
 
-import Users from "./routes/_app.users.index";
-import OmHondaChunks from "./routes/omhondachunks";
+
 import WhatsApp from "./routes/_app.whatsapp.index";
-import Settings from "./routes/_app.settings.index";
 import Integrations from "./routes/_app.integrations.index";
 import Analytics from "./routes/_app.analytics.index";
 
@@ -84,6 +84,17 @@ function RequireAuth() {
   }
 
   return <AppLayout />;
+}
+
+// Standalone pages (no sidebar) that still need a session + a right.
+function RequireStandalone({ perm, children }: { perm: Parameters<typeof hasPerm>[0]; children: JSX.Element }) {
+  if (!isAuthenticated()) return <Navigate to="/login" replace />;
+  if (!getPermissions()) {
+    clearAuthSession();
+    return <Navigate to="/login" replace />;
+  }
+  if (!hasPerm(perm)) return <Navigate to={landingPath()} replace />;
+  return children;
 }
 
 function Forbidden() {
@@ -137,7 +148,14 @@ export default function App() {
         {/* Standalone browser test-call page — deliberately OUTSIDE
             AppLayout (no sidebar/topbar), same as a real incoming-call
             screen would be. */}
-        <Route path="/omhondachunks" element={<OmHondaChunks />} />
+        <Route
+          path="/omhondachunks"
+          element={
+            <RequireStandalone perm="calls.place">
+              <OmHondaChunks />
+            </RequireStandalone>
+          }
+        />
 
         {/* Application Layout */}
         <Route element={<RequireAuth />}>

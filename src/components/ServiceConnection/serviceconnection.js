@@ -205,6 +205,12 @@ const post_role = APL_LINK + "api/roles/";
 const role_url = (id) => `${APL_LINK}api/roles/${id}/`;
 const get_profile = APL_LINK + "api/profile/";
 
+const get_workspace_settings = APL_LINK + "api/settings/workspace/";
+const patch_workspace_settings = APL_LINK + "api/settings/workspace/";
+const patch_profile = APL_LINK + "api/profile/update/";
+const post_change_password = APL_LINK + "api/profile/password/";
+const patch_settings_voice = (id) => APL_LINK + `api/settings/voices/${id}/`;
+
 /* =========================================================
    COMMON CONFIG
 ========================================================= */
@@ -1011,4 +1017,9 @@ export {
   role_url,
   get_profile,
   getAudioUrl,
+  get_workspace_settings,
+  patch_workspace_settings,
+  patch_profile,
+  post_change_password,
+  patch_settings_voice,
 };
