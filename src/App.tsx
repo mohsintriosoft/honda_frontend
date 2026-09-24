@@ -25,12 +25,17 @@ import Customers from "./routes/Customers";
 import CustomerDetails from "./routes/CustomerDetails";
 import Fillers from "./routes/Fillers";
 import FillerDetail from "./routes/FillerDetail";
+import Imports from "./routes/Imports";
+import ImportDetails from "./routes/ImportDetails";
 
 
 
 
-import Imports from "./routes/_app.imports.index";
-import ImportDetails from "./routes/_app.imports.$id";
+
+
+
+
+
 
 import Integrations from "./routes/_app.integrations.index";
 import Intents from "./routes/_app.intents.index";

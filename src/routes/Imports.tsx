@@ -51,10 +51,6 @@ import {
 } from "@/components/ui/table";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { cn } from "@/lib/utils";
-// NOTE: adjust this path to wherever serviceconnection.js actually lives
-// in your tree (it currently imports "../LocalConnection/LocalConnection.js",
-// so it's likely under something like src/API/ or src/Connection/ — this
-// file only needs the named exports below, not the path itself).
 import {
     get_imports,
     post_import_upload,
@@ -67,10 +63,6 @@ import {
     server_post_data,
     server_upload_file,
 } from "@/components/ServiceConnection/serviceconnection";
-// NOTE: post_import_delete follows the same shape as post_import_commit/
-// post_import_revert used on the import detail page (a function of the
-// import id that builds the POST /api/imports/{id}/delete/ endpoint) --
-// add it there alongside those two if it isn't already exported.
 
 /* =========================================================
    TYPES — mirror _serialize_csv_stats() in views_import.py
@@ -95,6 +87,8 @@ interface CsvStatsRow {
     sheet_name: string;
     period_month: string | null;
     status: ImportStatus;
+    parse_stalled?: boolean;
+    commit_stalled?: boolean;
     total_rows: number;
     customers_created: number;
     customers_updated: number;
@@ -107,17 +101,12 @@ interface CsvStatsRow {
     failed_count: number;
     column_map: Record<string, string>;
     reconciles: boolean;
-    // Present once a parse/commit has hit a problem worth recording; the
-    // BLOCK-ON-UNMATCHED refusal (see views_import.py's _parse()) lands
-    // here as stage: "parse" with unmatched_rows naming every offending
-    // Excel row, so the admin knows exactly what to fix before
-    // re-uploading instead of just seeing a generic "Failed" badge.
     error_log?: {
         stage: string;
         error: string;
         unmatched_rows?: { row_number: number; excel_row: number; reason: string }[];
     }[];
-    created_at: string;
+    created_at: string | null;
 }
 
 interface Branch {
@@ -125,21 +114,31 @@ interface Branch {
     name: string;
 }
 
-// In-flight statuses worth polling on — the row is still changing on its
-// own (parse happens synchronously server-side today, but this keeps the
-// list honest if that ever moves to a background job per the docs' "known
-// limitation" note).
 const LIVE_STATUSES: ImportStatus[] = ["uploaded", "parsing", "processing"];
 
-// unmatched_count is sometimes left at its default (0) even though the
-// per-type breakdown was populated — fall back to summing unmatched_types
-// so the column doesn't read "0" for a row that actually has unmatched rows.
+function isStalled(row: CsvStatsRow) {
+    return Boolean(row.parse_stalled || row.commit_stalled);
+}
+
+function isLive(row: CsvStatsRow) {
+    return LIVE_STATUSES.includes(row.status) && !isStalled(row);
+}
+
+function num(n: number | null | undefined) {
+    return Number(n ?? 0);
+}
+
 function unmatchedCount(row: CsvStatsRow) {
-    if (row.unmatched_count > 0) return row.unmatched_count;
+    if (num(row.unmatched_count) > 0) return num(row.unmatched_count);
     return Object.values(row.unmatched_types ?? {}).reduce(
         (sum, n) => sum + (Number(n) || 0),
         0,
     );
+}
+
+function apiErrorMessage(err: any, fallback: string) {
+    if (err?.response?.status === 403) return "You don't have permission to do this.";
+    return err?.response?.data?.error || fallback;
 }
 
 const LIST_TYPE_LABEL: Record<ListType, string> = {
@@ -150,23 +149,10 @@ const LIST_TYPE_LABEL: Record<ListType, string> = {
     other: "Other",
 };
 
-// Only these are offered when uploading a new file. "missed" and "other"
-// stay out of the picker on purpose:
-//   - "missed" is redundant with "service" -- a regular service-due upload
-//     already routes rows with a missed_service_date to the Missed Service
-//     campaign automatically (see the "Missed Service takes priority"
-//     notice below), and picking "missed" for this dealer's actual monthly
-//     export would wrongly force EVERY row in the file into Missed Service
-//     regardless of its real Next Service Type.
-//   - "other" is a backend safety-net fallback for an unrecognised
-//     list_type value coming from somewhere other than this form, not a
-//     real choice meant to be made here.
-// LIST_TYPE_LABEL above is kept complete (not trimmed) so past uploads
-// that used either value still render a proper label in the table.
 const UPLOADABLE_LIST_TYPES: ListType[] = ["service", "insurance", "amc"];
 
-function StatusBadge({ status }: { status: ImportStatus }) {
-    const map: Record<
+function StatusBadge({ row }: { row: CsvStatsRow }) {
+    const map: Record
         ImportStatus,
         { label: string; className: string; icon: typeof Clock }
     > = {
@@ -178,8 +164,18 @@ function StatusBadge({ status }: { status: ImportStatus }) {
         failed: { label: "Failed", className: "bg-destructive/15 text-destructive", icon: XCircle },
         reverted: { label: "Reverted", className: "bg-muted text-muted-foreground", icon: RotateCcw },
     };
-    const { label, className, icon: Icon } = map[status] ?? map.uploaded;
-    const spinning = status === "parsing" || status === "processing";
+
+    if (isStalled(row)) {
+        return (
+            <Badge variant="secondary" className="gap-1 font-medium bg-destructive/15 text-destructive">
+                <AlertTriangle className="size-3" />
+                {row.parse_stalled ? "Parse stalled" : "Commit stalled"}
+            </Badge>
+        );
+    }
+
+    const { label, className, icon: Icon } = map[row.status] ?? map.uploaded;
+    const spinning = row.status === "parsing" || row.status === "processing";
     return (
         <Badge variant="secondary" className={cn("gap-1 font-medium", className)}>
             <Icon className={cn("size-3", spinning && "animate-spin")} />
@@ -188,22 +184,11 @@ function StatusBadge({ status }: { status: ImportStatus }) {
     );
 }
 
-// The admin should never have to guess why a file was refused -- pull the
-// most recent error_log entry (parse or commit) so its message, and any
-// named Excel rows, can render right next to the file instead of only the
-// generic "Failed" badge.
 function latestImportError(row: CsvStatsRow) {
     const log = row.error_log ?? [];
     return log.length > 0 ? log[log.length - 1] : null;
 }
 
-// Deletable only when nothing has actually been committed yet -- once
-// status is 'done' the import owns real Customer/Vehicle/CampaignBatch/
-// CsvSegmentData rows and has to go through Revert instead (on the detail
-// page), and 'processing' means a commit is actively running right now.
-// Every other status (uploaded, parsing, preview_ready, failed, reverted)
-// made no committed writes and is safe to discard outright. Mirrors the
-// same check the backend makes in import_delete().
 function canDeleteImport(status: ImportStatus) {
     return status !== "done" && status !== "processing";
 }
@@ -254,26 +239,24 @@ function UploadDialog({
 
     const handleSubmit = async () => {
         if (!file || !branchId) return;
+        if (!/\.(xlsx|xlsm|csv)$/i.test(file.name)) {
+            setError("Only .xlsx, .xlsm or .csv files are supported. Save an old .xls file as .xlsx first.");
+            return;
+        }
         setSubmitting(true);
         setError(null);
         try {
             const res = await server_upload_file(post_import_upload, file, "file", {
                 branch_id: branchId,
                 list_type: listType,
-                sheet_name: sheetName || undefined,
+                sheet_name: sheetName.trim() || undefined,
             });
-            if (!res?.success) {
-                throw new Error(res?.error || "Upload failed");
-            }
+            if (!res?.success) throw { response: { data: res } };
             onUploaded(res.import as CsvStatsRow);
             setOpen(false);
             reset();
         } catch (err: any) {
-            setError(
-                err?.response?.data?.error ||
-                err?.message ||
-                "Upload failed — check the file and try again.",
-            );
+            setError(apiErrorMessage(err, "Upload failed — check the file and try again."));
         } finally {
             setSubmitting(false);
         }
@@ -357,11 +340,11 @@ function UploadDialog({
                             id="file"
                             ref={fileInputRef}
                             type="file"
-                            accept=".xlsx,.xlsm,.xls,.csv"
+                            accept=".xlsx,.xlsm,.csv"
                             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                         />
                         <p className="text-xs text-muted-foreground">
-                            .xlsx, .xlsm, .xls or .csv. Column names can vary month to
+                            .xlsx, .xlsm or .csv. Column names can vary month to
                             month — they're matched by alias, not position.
                         </p>
                     </div>
@@ -402,9 +385,6 @@ function UploadDialog({
 
 /* =========================================================
    DELETE DIALOG
-   Only rendered for rows canDeleteImport() allows -- an import that
-   was never committed. A committed one has real downstream data and
-   needs Revert instead, from the import detail page.
 ========================================================= */
 
 function DeleteDialog({
@@ -423,15 +403,11 @@ function DeleteDialog({
         setError(null);
         try {
             const res = await server_post_data(post_import_delete(row.id));
-            if (!res?.success) throw new Error(res?.error || "Delete failed");
+            if (!res?.success) throw { response: { data: res } };
             onDeleted(row.id);
             setOpen(false);
         } catch (err: any) {
-            setError(
-                err?.response?.data?.error ||
-                err?.message ||
-                "Delete failed, nothing was changed.",
-            );
+            setError(apiErrorMessage(err, "Delete failed, nothing was changed."));
         } finally {
             setBusy(false);
         }
@@ -450,11 +426,7 @@ function DeleteDialog({
                     variant="ghost"
                     size="icon"
                     className="size-7 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => {
-                        // The row itself navigates on click -- this button
-                        // sits inside that row, so stop it there.
-                        e.stopPropagation();
-                    }}
+                    onClick={(e) => e.stopPropagation()}
                     title="Delete this upload"
                 >
                     <Trash2 className="size-4" />
@@ -498,16 +470,13 @@ function DeleteDialog({
 }
 
 /* =========================================================
-   SCHEDULER TIME CARD
-   Sets the daily local time run_dialer.py's nightly scheduler wakes
-   up at to build tomorrow's call queue (Dealer.call_scheduler_hour /
-   call_scheduler_minute -- see dialer_schedule / update_dialer_schedule
-   in views_admin.py). Just the setter, no status info by design.
+   SCHEDULER TIME CARD — hidden for roles that can't use it
 ========================================================= */
 
 function SchedulerTimeCard() {
-    const [value, setValue] = useState<string>(""); // "HH:MM", <input type="time"> format
+    const [value, setValue] = useState<string>("");
     const [loading, setLoading] = useState(true);
+    const [forbidden, setForbidden] = useState(false);
     const [saving, setSaving] = useState(false);
     const [saved, setSaved] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -516,14 +485,17 @@ function SchedulerTimeCard() {
         server_get_data(get_dialer_schedule)
             .then((res) => {
                 if (res?.success) {
-                    const hh = String(res.hour).padStart(2, "0");
-                    const mm = String(res.minute).padStart(2, "0");
+                    const hh = String(res.hour ?? 0).padStart(2, "0");
+                    const mm = String(res.minute ?? 0).padStart(2, "0");
                     setValue(`${hh}:${mm}`);
                 } else {
                     setError(res?.error || "Could not load scheduler time");
                 }
             })
-            .catch((err: any) => setError(err?.message || "Could not load scheduler time"))
+            .catch((err: any) => {
+                if (err?.response?.status === 403) setForbidden(true);
+                else setError(apiErrorMessage(err, "Could not load scheduler time"));
+            })
             .finally(() => setLoading(false));
     }, []);
 
@@ -535,15 +507,17 @@ function SchedulerTimeCard() {
         setSaved(false);
         try {
             const res = await server_post_json(post_dialer_schedule, { hour: hh, minute: mm });
-            if (!res?.success) throw new Error(res?.error || "Save failed");
+            if (!res?.success) throw { response: { data: res } };
             setSaved(true);
             setTimeout(() => setSaved(false), 2000);
         } catch (err: any) {
-            setError(err?.response?.data?.error || err?.message || "Save failed");
+            setError(apiErrorMessage(err, "Save failed"));
         } finally {
             setSaving(false);
         }
     };
+
+    if (forbidden) return null;
 
     return (
         <Card className="mb-4">
@@ -601,7 +575,7 @@ export default function Imports() {
                 setError(res?.error || "Could not load uploads");
             }
         } catch (err: any) {
-            setError(err?.message || "Could not load uploads");
+            setError(apiErrorMessage(err, "Could not load uploads"));
         } finally {
             if (!silent) setLoading(false);
         }
@@ -610,16 +584,13 @@ export default function Imports() {
     useEffect(() => {
         fetchImports();
         server_get_data(get_branches)
-            .then((res) => setBranches(res?.branches ?? res?.results ?? res ?? []))
+            .then((res) => setBranches(Array.isArray(res?.branches) ? res.branches : []))
             .catch(() => setBranches([]));
     }, [fetchImports]);
 
-    // Poll while anything is still uploading/parsing/committing, so the
-    // status column updates without a manual refresh.
-    const hasLiveRows = useMemo(
-        () => rows.some((r) => LIVE_STATUSES.includes(r.status)),
-        [rows],
-    );
+    // Poll only while something is genuinely still running -- a stalled
+    // job (server restarted mid-parse/commit) never finishes on its own.
+    const hasLiveRows = useMemo(() => rows.some(isLive), [rows]);
 
     useEffect(() => {
         if (hasLiveRows) {
@@ -690,6 +661,7 @@ export default function Imports() {
                                 <TableBody>
                                     {rows.map((row) => {
                                         const lastError = row.status === "failed" ? latestImportError(row) : null;
+                                        const unmatched = unmatchedCount(row);
                                         return (
                                             <TableRow
                                                 key={row.id}
@@ -716,42 +688,51 @@ export default function Imports() {
                                                             </span>
                                                         </div>
                                                     )}
+                                                    {row.parse_stalled && (
+                                                        <div className="mt-1 text-xs font-normal text-destructive">
+                                                            Parsing stopped (server restarted?). Delete and upload again.
+                                                        </div>
+                                                    )}
+                                                    {row.commit_stalled && (
+                                                        <div className="mt-1 text-xs font-normal text-destructive">
+                                                            Commit stopped midway. Open it and commit again to resume.
+                                                        </div>
+                                                    )}
                                                 </TableCell>
-                                                <TableCell>{row.branch?.name}</TableCell>
+                                                <TableCell>{row.branch?.name ?? "—"}</TableCell>
                                                 <TableCell className="text-muted-foreground">
                                                     {LIST_TYPE_LABEL[row.list_type] ?? row.list_type}
                                                 </TableCell>
                                                 <TableCell className="text-right tabular-nums">
-                                                    {row.total_rows.toLocaleString()}
+                                                    {num(row.total_rows).toLocaleString()}
                                                 </TableCell>
                                                 <TableCell className="text-right tabular-nums">
-                                                    {row.segment_data_created.toLocaleString()}
+                                                    {num(row.segment_data_created).toLocaleString()}
                                                 </TableCell>
                                                 <TableCell className="text-right tabular-nums">
-                                                    {(() => {
-                                                        const count = unmatchedCount(row);
-                                                        return count > 0 ? (
-                                                            <span className="text-amber-600 dark:text-amber-400">
-                                                                {count.toLocaleString()}
-                                                            </span>
-                                                        ) : (
-                                                            "0"
-                                                        );
-                                                    })()}
+                                                    {unmatched > 0 ? (
+                                                        <span className="text-amber-600 dark:text-amber-400">
+                                                            {unmatched.toLocaleString()}
+                                                        </span>
+                                                    ) : (
+                                                        "0"
+                                                    )}
                                                 </TableCell>
                                                 <TableCell>
-                                                    <StatusBadge status={row.status} />
+                                                    <StatusBadge row={row} />
                                                 </TableCell>
                                                 <TableCell>
                                                     <ReconcileBadge row={row} />
                                                 </TableCell>
                                                 <TableCell className="text-muted-foreground whitespace-nowrap">
-                                                    {new Date(row.created_at).toLocaleString(undefined, {
-                                                        day: "2-digit",
-                                                        month: "short",
-                                                        hour: "2-digit",
-                                                        minute: "2-digit",
-                                                    })}
+                                                    {row.created_at
+                                                        ? new Date(row.created_at).toLocaleString(undefined, {
+                                                            day: "2-digit",
+                                                            month: "short",
+                                                            hour: "2-digit",
+                                                            minute: "2-digit",
+                                                        })
+                                                        : "—"}
                                                 </TableCell>
                                                 <TableCell onClick={(e) => e.stopPropagation()}>
                                                     <div className="flex items-center justify-end gap-1">

@@ -16,13 +16,7 @@ import {
 import { PageHeader } from "@/components/layout/AppShell";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -43,8 +37,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-// NOTE: adjust this path to match where serviceconnection.js actually
-// lives in your tree — same file the rest of the app imports from.
 import {
   get_import_detail,
   get_import_preview,
@@ -61,13 +53,7 @@ import {
 ========================================================= */
 
 type ImportStatus =
-  | "uploaded"
-  | "parsing"
-  | "preview_ready"
-  | "processing"
-  | "done"
-  | "failed"
-  | "reverted";
+  "uploaded" | "parsing" | "preview_ready" | "processing" | "done" | "failed" | "reverted";
 
 type ListType = "service" | "missed" | "amc" | "insurance" | "other";
 
@@ -82,6 +68,7 @@ interface CsvStatsRow {
   last_heartbeat_at: string | null;
   commit_stalled: boolean;
   parse_stalled: boolean;
+  commit_resumable?: boolean;
   total_rows: number;
   customers_created: number;
   customers_updated: number;
@@ -94,15 +81,14 @@ interface CsvStatsRow {
   failed_count: number;
   column_map: Record<string, string>;
   reconciles: boolean;
-  created_at: string;
+  error_log?: { stage: string; error: string }[];
+  created_at: string | null;
 }
 
 interface ServicePreview {
   total_rows: number;
   list_type: string;
   segment_counts: Record<string, number | null>;
-  // NEW — a segment can match rows here and still be a dead end: it needs
-  // a linked campaign too, or those rows land in Unmatched at commit.
   segments_without_campaign: string[];
   campaign_warning: string | null;
   missed_service_column_present: boolean;
@@ -117,8 +103,6 @@ interface ExpiryPreview {
   expiry_column_present: boolean;
   rows_with_expiry_date: number;
   segment_configured: boolean;
-  // NEW — segment_configured alone used to look "green" even when the
-  // segment had no campaign linked; this catches that case explicitly.
   campaign_linked: boolean;
   warning: string | null;
   reconciles: boolean;
@@ -138,8 +122,6 @@ interface CsvDetailsRow {
   crm_call_status: string;
   customer_id: number | null;
   vehicle_id: number | null;
-  // Every column exactly as it appeared in the uploaded Excel/CSV, keyed
-  // by original header -- see RawRowDialog below.
   raw: Record<string, unknown>;
 }
 
@@ -153,6 +135,21 @@ const LIST_TYPE_LABEL: Record<ListType, string> = {
 
 const LIVE_STATUSES: ImportStatus[] = ["uploaded", "parsing", "processing"];
 
+// row_number counts data rows only (header excluded), so the line the
+// admin sees in Excel is always one more. Used everywhere a row is shown.
+function excelRow(r: CsvDetailsRow) {
+  return r.row_number + 1;
+}
+
+function num(n: number | null | undefined) {
+  return Number(n ?? 0);
+}
+
+function apiErrorMessage(err: any, fallback: string) {
+  if (err?.response?.status === 403) return "You don't have permission to do this.";
+  return err?.response?.data?.error || fallback;
+}
+
 function isServicePreview(p: Preview): p is ServicePreview & { error?: string } {
   return "segment_counts" in p;
 }
@@ -160,10 +157,26 @@ function isServicePreview(p: Preview): p is ServicePreview & { error?: string } 
 function StatusBadge({ status }: { status: ImportStatus }) {
   const map: Record<ImportStatus, { label: string; className: string; icon: typeof Clock }> = {
     uploaded: { label: "Uploaded", className: "bg-muted text-muted-foreground", icon: Clock },
-    parsing: { label: "Parsing", className: "bg-blue-500/15 text-blue-600 dark:text-blue-400", icon: Loader2 },
-    preview_ready: { label: "Preview ready", className: "bg-amber-500/15 text-amber-600 dark:text-amber-400", icon: AlertTriangle },
-    processing: { label: "Committing", className: "bg-blue-500/15 text-blue-600 dark:text-blue-400", icon: Loader2 },
-    done: { label: "Done", className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400", icon: CheckCircle2 },
+    parsing: {
+      label: "Parsing",
+      className: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+      icon: Loader2,
+    },
+    preview_ready: {
+      label: "Preview ready",
+      className: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+      icon: AlertTriangle,
+    },
+    processing: {
+      label: "Committing",
+      className: "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+      icon: Loader2,
+    },
+    done: {
+      label: "Done",
+      className: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+      icon: CheckCircle2,
+    },
     failed: { label: "Failed", className: "bg-destructive/15 text-destructive", icon: XCircle },
     reverted: { label: "Reverted", className: "bg-muted text-muted-foreground", icon: RotateCcw },
   };
@@ -177,7 +190,15 @@ function StatusBadge({ status }: { status: ImportStatus }) {
   );
 }
 
-function StatCell({ label, value, tone }: { label: string; value: string | number; tone?: "warn" | "bad" | "good" }) {
+function StatCell({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "warn" | "bad" | "good";
+}) {
   return (
     <div className="flex flex-col gap-1 rounded-lg border bg-card px-4 py-3">
       <span className="text-xs text-muted-foreground">{label}</span>
@@ -196,7 +217,7 @@ function StatCell({ label, value, tone }: { label: string; value: string | numbe
 }
 
 /* =========================================================
-   COMMIT / REVERT CONFIRMATION DIALOGS
+   COMMIT DIALOG
 ========================================================= */
 
 function CommitDialog({
@@ -221,11 +242,12 @@ function CommitDialog({
     setError(null);
     try {
       const res = await server_post_data(post_import_commit(row.id));
-      if (!res?.success) throw new Error(res?.error || "Commit failed");
+      if (!res?.success) throw { response: { data: res } };
       onCommitted(res.import as CsvStatsRow);
       setOpen(false);
     } catch (err: any) {
-      setError(err?.response?.data?.error || err?.message || "Commit failed");
+      setError(apiErrorMessage(err, "Commit failed"));
+      if (err?.response?.data?.import) onCommitted(err.response.data.import as CsvStatsRow);
     } finally {
       setBusy(false);
     }
@@ -236,10 +258,6 @@ function CommitDialog({
       <Button
         className="gap-2"
         onClick={() => {
-          // Same preview-only scan that feeds the Unmatched tab -- checked
-          // now, at the moment of the click, rather than the instant that
-          // scan finishes loading, so the page doesn't look broken before
-          // anyone has even tried to commit. See commitBlocked below.
           if (hasUnmatchedRows) {
             onBlocked();
             return;
@@ -257,29 +275,31 @@ function CommitDialog({
           <DialogDescription>
             {resuming ? (
               <>
-                The previous commit run stopped responding (no progress in a while — likely a
-                server restart or crash mid-file). Rows it already finished were written for
-                good and won't be touched again; this only continues with whatever is still
-                pending.
+                The previous commit run stopped before finishing. Rows it already finished were
+                written for good and won't be touched again; this only continues with whatever is
+                still pending.
               </>
             ) : (
               <>
-                Every row is written inside its own atomic transaction — a bad row is marked
-                failed and skipped without touching rows that already succeeded. Previous
-                batches for the segments this file touches will be frozen (not deleted) and
-                their pending queued calls skipped, per the standard month-to-month supersede
-                rule.
+                Every row is written inside its own atomic transaction — a bad row is marked failed
+                and skipped without touching rows that already succeeded. Previous batches for the
+                segments this file touches will be frozen (not deleted) and their pending queued
+                calls skipped, per the standard month-to-month supersede rule.
               </>
             )}
           </DialogDescription>
         </DialogHeader>
         <div className="text-sm text-muted-foreground space-y-1">
           <p>
-            <span className="font-medium text-foreground">{row.total_rows.toLocaleString()}</span>{" "}
-            rows total for{" "}
-            <span className="font-medium text-foreground">{row.branch?.name}</span>.
+            <span className="font-medium text-foreground">
+              {num(row.total_rows).toLocaleString()}
+            </span>{" "}
+            rows total for <span className="font-medium text-foreground">{row.branch?.name}</span>.
           </p>
-          <p>Runs in the background — you can safely close or reload this page while it works; the status above updates automatically.</p>
+          <p>
+            Runs in the background — you can safely close or reload this page while it works; the
+            status above updates automatically.
+          </p>
         </div>
         {error && (
           <Alert variant="destructive">
@@ -301,15 +321,16 @@ function CommitDialog({
   );
 }
 
-
 /* =========================================================
-   UNMATCHED ROW — manual segment assignment
+   UNMATCHED ROW
 ========================================================= */
 
 function UnmatchedRow({ row }: { row: CsvDetailsRow }) {
   return (
     <TableRow>
-      <TableCell className="tabular-nums font-semibold text-destructive">#{row.row_number + 1}</TableCell>
+      <TableCell className="tabular-nums font-semibold text-destructive">
+        #{excelRow(row)}
+      </TableCell>
       <TableCell>{row.phone_raw || "—"}</TableCell>
       <TableCell className="font-mono text-xs">{row.frame_no || "—"}</TableCell>
       <TableCell>
@@ -321,15 +342,14 @@ function UnmatchedRow({ row }: { row: CsvDetailsRow }) {
         {row.error || "Unknown reason — check server logs"}
       </TableCell>
       <TableCell className="text-sm text-destructive font-medium whitespace-nowrap">
-        Row number {row.row_number + 1} of the excel is unmatched
+        Row number {excelRow(row)} of the excel is unmatched
       </TableCell>
     </TableRow>
   );
 }
 
 /* =========================================================
-   RAW ROW DIALOG — every column exactly as it appeared in the
-   uploaded file, for a single row (see CsvDetails.raw).
+   RAW ROW DIALOG
 ========================================================= */
 
 function RawRowDialog({
@@ -344,18 +364,24 @@ function RawRowDialog({
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Excel row #{row.row_number}</DialogTitle>
-          <DialogDescription>Every column exactly as it appeared in the uploaded file.</DialogDescription>
+          <DialogTitle>Excel row #{excelRow(row)}</DialogTitle>
+          <DialogDescription>
+            Every column exactly as it appeared in the uploaded file.
+          </DialogDescription>
         </DialogHeader>
         <div className="max-h-[60vh] overflow-y-auto rounded-md border">
           {entries.length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">No raw data stored for this row.</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No raw data stored for this row.
+            </div>
           ) : (
             <Table>
               <TableBody>
                 {entries.map(([col, val]) => (
                   <TableRow key={col}>
-                    <TableCell className="w-1/3 align-top font-medium text-muted-foreground">{col}</TableCell>
+                    <TableCell className="w-1/3 align-top font-medium text-muted-foreground">
+                      {col}
+                    </TableCell>
                     <TableCell className="whitespace-pre-wrap break-words">
                       {val === null || val === undefined || val === "" ? "—" : String(val)}
                     </TableCell>
@@ -401,23 +427,7 @@ export default function ImportDetails() {
   const [rawPage, setRawPage] = useState(1);
   const [selectedRawRow, setSelectedRawRow] = useState<CsvDetailsRow | null>(null);
 
-  // Whether an attempted commit has been refused for having unmatched
-  // rows. Deliberately NOT computed automatically from the preview scan
-  // -- it only flips true from CommitDialog's onBlocked, i.e. the moment
-  // "Confirm import"/"Resume commit" is actually clicked. Combined with
-  // hasUnmatchedRows below when rendering, so it stops showing on its
-  // own again if the unmatched rows disappear (a re-upload, a fixed
-  // segment/campaign, etc.) without needing to be reset explicitly.
   const [commitBlocked, setCommitBlocked] = useState(false);
-
-  // Which detail tab is showing. Kept as real state (not just Tabs'
-  // uncontrolled defaultValue) because Radix's onValueChange only fires
-  // on a user-driven change -- it never fires for the tab that's already
-  // showing via defaultValue on mount. "Unmatched" is that default tab,
-  // so on a fresh page load (or a reload straight into an already-done
-  // import, as in the screenshot) its data was NEVER fetched and the tab
-  // sat on "Loading…" forever, however small or large the file was. The
-  // effect below covers exactly that gap.
   const [activeTab, setActiveTab] = useState<"unmatched" | "errors" | "rows">("unmatched");
 
   const fetchDetail = useCallback(
@@ -425,11 +435,11 @@ export default function ImportDetails() {
       if (!silent) setLoading(true);
       try {
         const res = await server_get_data(get_import_detail(importId));
-        if (!res?.success) throw new Error(res?.error || "Import not found");
+        if (!res?.success) throw { response: { data: res } };
         setRow(res.import as CsvStatsRow);
         setError(null);
       } catch (err: any) {
-        setError(err?.message || "Could not load this import");
+        if (!silent) setError(apiErrorMessage(err, "Could not load this import"));
       } finally {
         if (!silent) setLoading(false);
       }
@@ -441,37 +451,45 @@ export default function ImportDetails() {
     fetchDetail();
   }, [fetchDetail]);
 
-  // Poll while the file is still parsing or a commit is in flight.
+  // Poll only while genuinely running -- a stalled parse/commit never
+  // finishes on its own.
+  const isLive =
+    !!row && LIVE_STATUSES.includes(row.status) && !row.parse_stalled && !row.commit_stalled;
+
   useEffect(() => {
-    const live = row ? LIVE_STATUSES.includes(row.status) : false;
-    if (live) {
+    if (isLive) {
       pollRef.current = setInterval(() => fetchDetail(true), 3000);
     }
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
-  }, [row?.status, fetchDetail]);
+  }, [isLive, fetchDetail]);
 
-  // Preview once the file is ready to review or already committed.
+  // Preview once ready/committed. The backend refreshes this import's
+  // preview-stage counters while building it (segment/campaign setup may
+  // have changed since upload), so re-read the detail right after.
   useEffect(() => {
     if (!row) return;
     if (row.status !== "preview_ready" && row.status !== "done") {
       setPreview(null);
       return;
     }
+    let cancelled = false;
     server_get_data(get_import_preview(importId))
       .then((res) => {
+        if (cancelled) return;
         if (res?.success) setPreview(res.preview as Preview);
+        if (row.status === "preview_ready") fetchDetail(true);
       })
-      .catch(() => setPreview(null));
+      .catch(() => {
+        if (!cancelled) setPreview(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [row?.status, importId]);
 
-  // Both loaders page with a row-number cursor (?after_row=) instead of
-  // fetching everything at once -- see _scan_dry_run_rows()/
-  // _paginated_rows_response() on the backend. Before commit, the backend
-  // returns preview_only:true and computes the same outcome commit would
-  // reach, read-only, so this now shows real content on a preview_ready
-  // import instead of always coming back empty.
   const loadUnmatched = useCallback(
     (opts?: { more?: boolean }) => {
       const more = opts?.more ?? false;
@@ -484,7 +502,7 @@ export default function ImportDetails() {
           const newRows: CsvDetailsRow[] = res?.rows ?? [];
           setUnmatchedRows((prev) => (more && prev ? [...prev, ...newRows] : newRows));
           setUnmatchedCursor(res?.next_after_row ?? null);
-          setUnmatchedHasMore(Boolean(res?.next_after_row));
+          setUnmatchedHasMore(res?.next_after_row != null);
           setUnmatchedPreviewOnly(Boolean(res?.preview_only));
         })
         .catch(() => {
@@ -507,7 +525,7 @@ export default function ImportDetails() {
           const newRows: CsvDetailsRow[] = res?.rows ?? [];
           setErrorRows((prev) => (more && prev ? [...prev, ...newRows] : newRows));
           setErrorsCursor(res?.next_after_row ?? null);
-          setErrorsHasMore(Boolean(res?.next_after_row));
+          setErrorsHasMore(res?.next_after_row != null);
           setErrorsPreviewOnly(Boolean(res?.preview_only));
         })
         .catch(() => {
@@ -518,10 +536,7 @@ export default function ImportDetails() {
     [importId, errorsCursor],
   );
 
-  // Once a preview_ready import actually gets committed, the cached
-  // preview-only unmatched/errors rows are stale (dry-run guesses, not
-  // what actually happened) -- drop them so the tabs refetch the real
-  // committed outcome next time they're opened.
+  // Status left preview_ready -> cached dry-run rows are stale.
   const prevStatusRef = useRef<ImportStatus | null>(null);
   useEffect(() => {
     if (!row) return;
@@ -543,13 +558,6 @@ export default function ImportDetails() {
     [importId],
   );
 
-  // Fetches whichever tab is currently active as soon as its data is
-  // missing and the import is in a state that has something to show
-  // (still-'pending' rows during parsing/uploaded render their own
-  // spinner instead, see below) -- covers both the initial default-tab
-  // mount case above and the "row.status flipped and cleared the cached
-  // rows" case that used to only re-fetch if the user happened to
-  // re-click the tab.
   useEffect(() => {
     if (!row) return;
     if (row.status === "uploaded" || row.status === "parsing") return;
@@ -581,25 +589,22 @@ export default function ImportDetails() {
     );
   }
 
-  // A genuinely live commit (heartbeat still fresh) shouldn't offer a
-  // clickable "Confirm import" button at all -- the backend would just
-  // 409 it. Only preview_ready (first commit) or a stalled 'processing'
-  // (previous run's process/thread died -- see commit_stalled) are
-  // actionable; anything else in between shows a plain "Committing…"
-  // indicator instead.
-  // row.unmatched_count is only populated after a real commit; before
-  // that, hasUnmatchedRows falls back to the preview-only unmatched scan
-  // (unmatchedRows). Either source finding at least one row means the
-  // admin needs to fix or manually route it first -- but that's only
-  // enforced at the moment a commit is actually attempted (commitBlocked,
-  // set from CommitDialog's onBlocked), not the instant the scan
-  // finishes, so the page doesn't show a block before anyone has tried.
+  // The unmatched block only applies to a FIRST commit (the backend only
+  // checks it then). A resume must never be blocked by it. Prefer the
+  // live dry-run scan once it has loaded; until then use the (freshly
+  // refreshed) counter.
+  const isFirstCommit = row.status === "preview_ready";
   const hasUnmatchedRows =
-    row.unmatched_count > 0 || (unmatchedRows !== null && unmatchedRows.length > 0);
+    isFirstCommit &&
+    (unmatchedRows !== null ? unmatchedRows.length > 0 : num(row.unmatched_count) > 0);
 
-  const canAttemptCommit =
-    row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled);
+  const isResumable =
+    (row.status === "processing" && row.commit_stalled) ||
+    (row.status === "failed" && Boolean(row.commit_resumable));
+  const canAttemptCommit = isFirstCommit || isResumable;
   const isLiveCommitting = row.status === "processing" && !row.commit_stalled;
+
+  const lastError = (row.error_log ?? []).slice(-1)[0] ?? null;
 
   return (
     <div>
@@ -620,7 +625,10 @@ export default function ImportDetails() {
             {row.period_month && (
               <span className="inline-flex items-center gap-1">
                 <CalendarDays className="size-3.5" />
-                {new Date(row.period_month).toLocaleDateString(undefined, { month: "long", year: "numeric" })}
+                {new Date(`${row.period_month}T00:00:00`).toLocaleDateString(undefined, {
+                  month: "long",
+                  year: "numeric",
+                })}
               </span>
             )}
           </span>
@@ -640,13 +648,16 @@ export default function ImportDetails() {
                   setCommitBlocked(false);
                   setRow(r);
                 }}
-                resuming={row.status === "processing"}
+                resuming={isResumable}
                 hasUnmatchedRows={hasUnmatchedRows}
                 onBlocked={() => setCommitBlocked(true)}
               />
             )}
             {canAttemptCommit && commitBlocked && hasUnmatchedRows && (
-              <Badge variant="secondary" className="gap-1 font-medium bg-destructive/15 text-destructive">
+              <Badge
+                variant="secondary"
+                className="gap-1 font-medium bg-destructive/15 text-destructive"
+              >
                 <XCircle className="size-3" />
                 Import blocked — unmatched rows
               </Badge>
@@ -659,10 +670,18 @@ export default function ImportDetails() {
         {row.status === "failed" && (
           <Alert variant="destructive">
             <XCircle className="size-4" />
-            <AlertTitle>This import failed</AlertTitle>
-            <AlertDescription>
-              Check the server logs for the exact stage. Rows that already committed before the
-              failure are unaffected — each row is its own transaction.
+            <AlertTitle>
+              {lastError?.stage === "parse" ? "This file could not be read" : "This import failed"}
+            </AlertTitle>
+            <AlertDescription className="space-y-1">
+              {lastError?.error && <p className="font-medium">{lastError.error}</p>}
+              <p>
+                {lastError?.stage === "parse"
+                  ? "Nothing was imported. Fix the file (or the sheet name) and upload it again."
+                  : row.commit_resumable
+                    ? 'Rows that committed before the failure are kept. Use "Resume commit" to finish the rest.'
+                    : "Rows that already committed before the failure are unaffected — each row is its own transaction."}
+              </p>
             </AlertDescription>
           </Alert>
         )}
@@ -674,8 +693,8 @@ export default function ImportDetails() {
             <AlertDescription>
               No progress has been reported in a while — the server likely restarted or crashed
               partway through. Nothing was lost: every row that finished is written for good, and
-              rows still pending are unaffected. Use "Resume commit" above to continue with the
-              rows that are left.
+              rows still pending are unaffected. Use "Resume commit" above to continue with the rows
+              that are left.
             </AlertDescription>
           </Alert>
         )}
@@ -685,9 +704,8 @@ export default function ImportDetails() {
             <AlertTriangle className="size-4" />
             <AlertTitle>Upload stopped responding</AlertTitle>
             <AlertDescription>
-              Parsing this file hasn't progressed in a while and likely crashed before any rows
-              were saved (parsing writes the whole file as one unit, so nothing partial is left
-              behind). Please re-upload the file.
+              Parsing this file hasn't progressed in a while and likely crashed before any rows were
+              saved. Delete this upload from the Data Import list and upload the file again.
             </AlertDescription>
           </Alert>
         )}
@@ -697,24 +715,24 @@ export default function ImportDetails() {
             <AlertTriangle className="size-4" />
             <AlertTitle>Reconciliation doesn't balance</AlertTitle>
             <AlertDescription>
-              total_rows should equal segment_data_created + unmatched + skipped + failed. Some
-              rows may be unaccounted for — worth a look before trusting this batch.
+              total_rows should equal segment_data_created + unmatched + skipped + failed. Some rows
+              may be unaccounted for — worth a look before trusting this batch.
             </AlertDescription>
           </Alert>
         )}
 
-        {commitBlocked && hasUnmatchedRows && (row.status === "preview_ready" || (row.status === "processing" && row.commit_stalled)) && (
+        {commitBlocked && hasUnmatchedRows && (
           <Alert variant="destructive">
             <XCircle className="size-4" />
-            <AlertTitle>Unmatched rows found — this data cannot be imported</AlertTitle>
+            <AlertTitle>Unmatched rows found — this data cannot be imported yet</AlertTitle>
             <AlertDescription className="text-xs space-y-1">
               <p>
-                {row.unmatched_count > 0
-                  ? `${row.unmatched_count.toLocaleString()} row${row.unmatched_count !== 1 ? "s" : ""}`
-                  : `${unmatchedRows!.length.toLocaleString()}${unmatchedHasMore ? "+" : ""} row${unmatchedRows!.length !== 1 ? "s" : ""}`}{" "}
-                in this file could not be matched to a segment. The data cannot be imported until
-                every row is matched correctly — fix the file and re-upload. See the "Unmatched"
-                tab below for the exact rows.
+                {unmatchedRows !== null
+                  ? `${unmatchedRows.length.toLocaleString()}${unmatchedHasMore ? "+" : ""}`
+                  : num(row.unmatched_count).toLocaleString()}{" "}
+                row(s) in this file could not be matched to a segment. Check the reason on each row
+                in the "Unmatched" tab: fix the file and re-upload, or — if the reason is a missing
+                segment/campaign — fix that setup and reload this page.
               </p>
             </AlertDescription>
           </Alert>
@@ -722,13 +740,31 @@ export default function ImportDetails() {
 
         {/* Counters */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
-          <StatCell label="Total rows" value={row.total_rows.toLocaleString()} />
-          <StatCell label="Will be queued" value={row.segment_data_created.toLocaleString()} tone="good" />
-          <StatCell label="Unmatched" value={row.unmatched_count.toLocaleString()} tone={row.unmatched_count ? "warn" : undefined} />
-          <StatCell label="Skipped (DNC)" value={row.skipped_count.toLocaleString()} />
-          <StatCell label="Failed" value={row.failed_count.toLocaleString()} tone={row.failed_count ? "bad" : undefined} />
-          <StatCell label="Customers new / updated" value={`${row.customers_created} / ${row.customers_updated}`} />
-          <StatCell label="Vehicles new / updated" value={`${row.vehicles_created} / ${row.vehicles_updated}`} />
+          <StatCell label="Total rows" value={num(row.total_rows).toLocaleString()} />
+          <StatCell
+            label="Will be queued"
+            value={num(row.segment_data_created).toLocaleString()}
+            tone="good"
+          />
+          <StatCell
+            label="Unmatched"
+            value={num(row.unmatched_count).toLocaleString()}
+            tone={row.unmatched_count ? "warn" : undefined}
+          />
+          <StatCell label="Skipped (DNC)" value={num(row.skipped_count).toLocaleString()} />
+          <StatCell
+            label="Failed"
+            value={num(row.failed_count).toLocaleString()}
+            tone={row.failed_count ? "bad" : undefined}
+          />
+          <StatCell
+            label="Customers new / updated"
+            value={`${num(row.customers_created)} / ${num(row.customers_updated)}`}
+          />
+          <StatCell
+            label="Vehicles new / updated"
+            value={`${num(row.vehicles_created)} / ${num(row.vehicles_updated)}`}
+          />
         </div>
 
         {/* Preview / reconciliation detail */}
@@ -751,16 +787,17 @@ export default function ImportDetails() {
                     <div className="rounded-md border bg-muted/30 px-3 py-2">
                       <div className="text-xs text-muted-foreground">Missed Service</div>
                       <div className="text-lg font-semibold tabular-nums">
-                        {preview.missed_service_count.toLocaleString()}
+                        {num(preview.missed_service_count).toLocaleString()}
                       </div>
                     </div>
-                    {Object.entries(preview.segment_counts).map(([name, count]) => {
+                    {Object.entries(preview.segment_counts ?? {}).map(([name, count]) => {
                       const missingCampaign = preview.segments_without_campaign?.includes(name);
                       return (
                         <div
                           key={name}
-                          className={`rounded-md border px-3 py-2 ${missingCampaign ? "border-amber-500/40 bg-amber-500/5" : "bg-muted/30"
-                            }`}
+                          className={`rounded-md border px-3 py-2 ${
+                            missingCampaign ? "border-amber-500/40 bg-amber-500/5" : "bg-muted/30"
+                          }`}
                         >
                           <div className="text-xs text-muted-foreground flex items-center gap-1">
                             {name}
@@ -770,7 +807,9 @@ export default function ImportDetails() {
                             {count === null ? "—" : count.toLocaleString()}
                           </div>
                           {missingCampaign && (
-                            <div className="text-[11px] text-amber-600 mt-0.5">No campaign linked</div>
+                            <div className="text-[11px] text-amber-600 mt-0.5">
+                              No campaign linked
+                            </div>
                           )}
                         </div>
                       );
@@ -779,13 +818,17 @@ export default function ImportDetails() {
                   {preview.missed_service_warning && (
                     <Alert className="border-amber-500/30 bg-amber-500/5">
                       <AlertTriangle className="size-4 text-amber-600" />
-                      <AlertDescription className="text-xs">{preview.missed_service_warning}</AlertDescription>
+                      <AlertDescription className="text-xs">
+                        {preview.missed_service_warning}
+                      </AlertDescription>
                     </Alert>
                   )}
                   {preview.campaign_warning && (
                     <Alert className="border-amber-500/30 bg-amber-500/5">
                       <AlertTriangle className="size-4 text-amber-600" />
-                      <AlertDescription className="text-xs">{preview.campaign_warning}</AlertDescription>
+                      <AlertDescription className="text-xs">
+                        {preview.campaign_warning}
+                      </AlertDescription>
                     </Alert>
                   )}
                 </>
@@ -793,21 +836,28 @@ export default function ImportDetails() {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
                     <div className="text-xs text-muted-foreground">Date column found</div>
-                    <div className="text-sm font-medium">{preview.expiry_column_present ? "Yes" : "No"}</div>
+                    <div className="text-sm font-medium">
+                      {preview.expiry_column_present ? "Yes" : "No"}
+                    </div>
                   </div>
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
                     <div className="text-xs text-muted-foreground">Rows with a due date</div>
-                    <div className="text-lg font-semibold tabular-nums">{preview.rows_with_expiry_date.toLocaleString()}</div>
+                    <div className="text-lg font-semibold tabular-nums">
+                      {num(preview.rows_with_expiry_date).toLocaleString()}
+                    </div>
                   </div>
                   <div className="rounded-md border bg-muted/30 px-3 py-2">
                     <div className="text-xs text-muted-foreground">Segment configured</div>
-                    <div className="text-sm font-medium">{preview.segment_configured ? "Yes" : "No"}</div>
+                    <div className="text-sm font-medium">
+                      {preview.segment_configured ? "Yes" : "No"}
+                    </div>
                   </div>
                   <div
-                    className={`rounded-md border px-3 py-2 ${preview.segment_configured && !preview.campaign_linked
-                      ? "border-amber-500/40 bg-amber-500/5"
-                      : "bg-muted/30"
-                      }`}
+                    className={`rounded-md border px-3 py-2 ${
+                      preview.segment_configured && !preview.campaign_linked
+                        ? "border-amber-500/40 bg-amber-500/5"
+                        : "bg-muted/30"
+                    }`}
                   >
                     <div className="text-xs text-muted-foreground">Campaign linked</div>
                     <div className="text-sm font-medium">
@@ -827,10 +877,13 @@ export default function ImportDetails() {
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground">Accounted for:</span>
                 <span className="font-medium tabular-nums">
-                  {row.segment_data_created + row.unmatched_count + row.skipped_count + row.failed_count}
+                  {num(row.segment_data_created) +
+                    num(row.unmatched_count) +
+                    num(row.skipped_count) +
+                    num(row.failed_count)}
                 </span>
                 <span className="text-muted-foreground">of</span>
-                <span className="font-medium tabular-nums">{row.total_rows}</span>
+                <span className="font-medium tabular-nums">{num(row.total_rows)}</span>
                 {row.reconciles ? (
                   <CheckCircle2 className="size-4 text-emerald-600" />
                 ) : (
@@ -841,7 +894,7 @@ export default function ImportDetails() {
           </Card>
         )}
 
-        {(row.status === "uploaded" || row.status === "parsing") && (
+        {(row.status === "uploaded" || row.status === "parsing") && !row.parse_stalled && (
           <div className="flex items-center justify-center gap-2 py-12 text-muted-foreground">
             <Loader2 className="size-4 animate-spin" /> Parsing file…
           </div>
@@ -855,16 +908,12 @@ export default function ImportDetails() {
           <TabsList>
             <TabsTrigger value="unmatched" className="gap-1.5">
               Unmatched
-              {row.unmatched_count > 0 && (
+              {num(row.unmatched_count) > 0 && (
                 <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                   {row.unmatched_count}
                 </Badge>
               )}
-              {/* row.unmatched_count is only populated at commit -- before
-                  that, show what the preview scan has turned up so far
-                  (it stops once it's found a page, so this is a floor,
-                  not the exact total, hence the "+"). */}
-              {row.unmatched_count === 0 && unmatchedRows && unmatchedRows.length > 0 && (
+              {num(row.unmatched_count) === 0 && unmatchedRows && unmatchedRows.length > 0 && (
                 <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                   {unmatchedRows.length}
                   {unmatchedHasMore ? "+" : ""}
@@ -873,12 +922,12 @@ export default function ImportDetails() {
             </TabsTrigger>
             <TabsTrigger value="errors" className="gap-1.5">
               Errors
-              {row.failed_count > 0 && (
+              {num(row.failed_count) > 0 && (
                 <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                   {row.failed_count}
                 </Badge>
               )}
-              {row.failed_count === 0 && errorRows && errorRows.length > 0 && (
+              {num(row.failed_count) === 0 && errorRows && errorRows.length > 0 && (
                 <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
                   {errorRows.length}
                   {errorsHasMore ? "+" : ""}
@@ -894,8 +943,8 @@ export default function ImportDetails() {
                 <CardTitle className="text-base">Unmatched rows</CardTitle>
                 <CardDescription>
                   Each row landed here for its own reason — see "Why unmatched" below. It isn't
-                  always a bad value: a segment can match and still have no linked campaign, or
-                  the vehicle can be missing a due date.
+                  always a bad value: a segment can match and still have no linked campaign, or the
+                  vehicle can be missing a due date.
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
@@ -987,7 +1036,7 @@ export default function ImportDetails() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-16">Row</TableHead>
+                          <TableHead className="w-20">Excel Row</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Frame no.</TableHead>
                           <TableHead>Reason</TableHead>
@@ -996,10 +1045,14 @@ export default function ImportDetails() {
                       <TableBody>
                         {errorRows.map((r) => (
                           <TableRow key={r.id}>
-                            <TableCell className="tabular-nums text-muted-foreground">{r.row_number}</TableCell>
+                            <TableCell className="tabular-nums text-muted-foreground">
+                              #{excelRow(r)}
+                            </TableCell>
                             <TableCell>{r.phone_raw || "—"}</TableCell>
                             <TableCell className="font-mono text-xs">{r.frame_no || "—"}</TableCell>
-                            <TableCell className="text-destructive text-sm">{r.error || "—"}</TableCell>
+                            <TableCell className="text-destructive text-sm">
+                              {r.error || "—"}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -1028,7 +1081,10 @@ export default function ImportDetails() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="text-base">Raw rows</CardTitle>
-                <CardDescription>Every line exactly as received, for tracing a specific customer back to its source line.</CardDescription>
+                <CardDescription>
+                  Every line exactly as received, for tracing a specific customer back to its source
+                  line.
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 {rawRows === null ? (
@@ -1040,7 +1096,7 @@ export default function ImportDetails() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-16">Row</TableHead>
+                          <TableHead className="w-20">Excel Row</TableHead>
                           <TableHead>Phone</TableHead>
                           <TableHead>Frame no.</TableHead>
                           <TableHead>Next Service Type</TableHead>
@@ -1056,7 +1112,9 @@ export default function ImportDetails() {
                             className="cursor-pointer"
                             onClick={() => setSelectedRawRow(r)}
                           >
-                            <TableCell className="tabular-nums text-muted-foreground">{r.row_number}</TableCell>
+                            <TableCell className="tabular-nums text-muted-foreground">
+                              #{excelRow(r)}
+                            </TableCell>
                             <TableCell>{r.phone_raw || "—"}</TableCell>
                             <TableCell className="font-mono text-xs">{r.frame_no || "—"}</TableCell>
                             <TableCell>{r.next_service_type_raw || "—"}</TableCell>
