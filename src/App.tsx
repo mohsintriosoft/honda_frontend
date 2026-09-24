@@ -9,7 +9,7 @@ import Login from "./routes/login";
 import Dashboard from "./routes/_app.dashboard";
 import Analytics from "./routes/_app.analytics.index";
 import Callbacks from "./routes/_app.callbacks.index";
-
+import Integrations from "./routes/_app.integrations.index";
 
 
 
@@ -27,6 +27,8 @@ import Fillers from "./routes/Fillers";
 import FillerDetail from "./routes/FillerDetail";
 import Imports from "./routes/Imports";
 import ImportDetails from "./routes/ImportDetails";
+import Intents from "./routes/Intents";
+import IntentDetails from "./routes/IntentDetails";
 
 
 
@@ -37,9 +39,7 @@ import ImportDetails from "./routes/ImportDetails";
 
 
 
-import Integrations from "./routes/_app.integrations.index";
-import Intents from "./routes/_app.intents.index";
-import IntentDetails from "./routes/_app.intents.$id";
+
 
 import KnowledgeGlobal from "./routes/_app.knowledge.index";
 
