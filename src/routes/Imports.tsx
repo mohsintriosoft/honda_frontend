@@ -152,7 +152,7 @@ const LIST_TYPE_LABEL: Record<ListType, string> = {
 const UPLOADABLE_LIST_TYPES: ListType[] = ["service", "insurance", "amc"];
 
 function StatusBadge({ row }: { row: CsvStatsRow }) {
-    const map: Record
+    const map: Record<
         ImportStatus,
         { label: string; className: string; icon: typeof Clock }
     > = {

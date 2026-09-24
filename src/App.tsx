@@ -4,17 +4,10 @@ import { AppShell } from "@/components/layout/AppShell";
 import { isAuthenticated } from "@/components/ServiceConnection/serviceconnection";
 import { AuthProvider } from "@/context/AuthContext";
 
+
+
+
 import Home from "./routes/index";
-import Login from "./routes/login";
-import Dashboard from "./routes/_app.dashboard";
-import Analytics from "./routes/_app.analytics.index";
-import Callbacks from "./routes/_app.callbacks.index";
-import Integrations from "./routes/_app.integrations.index";
-import Settings from "./routes/_app.settings.index";
-import Users from "./routes/_app.users.index";
-
-
-
 import Agents from "./routes/Agents";
 import AgentDetails from "./routes/AgentDetails";
 import AgentRecordings from "./routes/AgentRecordings";
@@ -36,6 +29,13 @@ import Segments from "./routes/Segments";
 import SegmentDetails from "./routes/SegmentDetails";
 import Voice from "./routes/Voice";
 import VoiceCall from "./routes/VoiceCall";
+import Health from "./routes/Health";
+import Callbacks from "./routes/Callbacks";
+import Login from "./routes/login";
+
+
+
+import Dashboard from "./routes/_app.dashboard";
 
 
 
@@ -45,15 +45,12 @@ import VoiceCall from "./routes/VoiceCall";
 
 
 
-
-
-
+import Users from "./routes/_app.users.index";
 import OmHondaChunks from "./routes/omhondachunks";
-
 import WhatsApp from "./routes/_app.whatsapp.index";
-
-import Health from "./routes/_app.health.index";
-
+import Settings from "./routes/_app.settings.index";
+import Integrations from "./routes/_app.integrations.index";
+import Analytics from "./routes/_app.analytics.index";
 function AppLayout() {
   return (
     <AuthProvider>

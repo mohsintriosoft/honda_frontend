@@ -26,11 +26,11 @@ import {
 type HealthLevel = "healthy" | "warning" | "critical" | "exhausted" | "unknown";
 
 type HealthCardData = {
-    key: "server" | "audio" | "voice" | "caller";
+    key: string;
     label: string;
     service: string;
     provider: string;
-    level: HealthLevel;
+    level: string;
     error: string | null;
 };
 
@@ -42,7 +42,7 @@ type HealthResponse = {
 
 const POLL_MS = 60_000;
 
-const CARD_ICONS: Record<HealthCardData["key"], LucideIcon> = {
+const CARD_ICONS: Record<string, LucideIcon> = {
     server: Server,
     audio: Mic,
     voice: Volume2,
@@ -54,17 +54,16 @@ const CARD_ICONS: Record<HealthCardData["key"], LucideIcon> = {
    carried by colour alone.
 ------------------------------------------------------------------ */
 
-const LEVELS: Record<
-    HealthLevel,
-    {
-        label: string;
-        icon: LucideIcon;
-        chip: string;
-        marker: string;
-        card: string;
-        advice: (service: string) => string | null;
-    }
-> = {
+type LevelStyle = {
+    label: string;
+    icon: LucideIcon;
+    chip: string;
+    marker: string;
+    card: string;
+    advice: (service: string) => string | null;
+};
+
+const LEVELS: { [K in HealthLevel]: LevelStyle } = {
     healthy: {
         label: "Healthy",
         icon: CheckCircle2,
@@ -107,6 +106,12 @@ const LEVELS: Record<
     },
 };
 
+// Any level/key the backend adds later falls back safely instead of
+// crashing the whole page.
+function levelOf(level: string) {
+    return LEVELS[level as HealthLevel] ?? LEVELS.unknown;
+}
+
 /* ------------------------------------------------------------------
    Formatting
 ------------------------------------------------------------------ */
@@ -126,8 +131,8 @@ function timeAgo(iso: string | undefined, now: number): string {
 ------------------------------------------------------------------ */
 
 function HealthCard({ card }: { card: HealthCardData }) {
-    const lv = LEVELS[card.level];
-    const Icon = CARD_ICONS[card.key];
+    const lv = levelOf(card.level);
+    const Icon = CARD_ICONS[card.key] ?? Server;
     const StatusIcon = lv.icon;
     const message = card.error ?? lv.advice(card.service);
 
@@ -145,7 +150,6 @@ function HealthCard({ card }: { card: HealthCardData }) {
                         <h2 id={`health-${card.key}`} className="font-display font-semibold text-base">
                             {card.label}
                         </h2>
-                        {/* <p className="text-xs text-muted-foreground">{card.service}</p> */}
                     </div>
                 </div>
                 <span
@@ -216,8 +220,12 @@ export default function Health() {
             if (!res?.success || !Array.isArray(res.cards)) throw new Error("Unexpected response");
             setData(res);
             setLoadError(null);
-        } catch {
-            setLoadError("Couldn't reach the server to check balances.");
+        } catch (err: any) {
+            setLoadError(
+                err?.response?.status === 403
+                    ? "Your role does not have permission to view system health."
+                    : "Couldn't reach the server to check balances.",
+            );
         } finally {
             inFlight.current = false;
             setRefreshing(false);

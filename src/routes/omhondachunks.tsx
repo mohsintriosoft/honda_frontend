@@ -63,7 +63,6 @@ function downsample(float32: Float32Array, fromRate: number, toRate = MIC_SAMPLE
 
 export default function OmHondaChunks() {
   // Standalone temporary test-call page, mounted at /omhondachunks
-  // (outside AppLayout — no sidebar/topbar). callId is optional; when
   // present (e.g. /voice/:callId reusing this same component) it's the
   // phone number to dial, otherwise falls back to consumers.py's
   // no-phone / random-seeded-customer path.
