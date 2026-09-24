@@ -45,7 +45,6 @@ import {
   get_branches,
   get_branch_calendar,
   get_appointments,
-  get_slot_blocks,
   post_manual_slot,
   post_slot_block,
   delete_slot_block,
@@ -59,18 +58,21 @@ import {
 ========================================================= */
 
 type RangeKey = "day" | "week" | "15day" | "month";
-// A specific branch id, or "all" for the global cross-branch view.
 type BranchSelection = number | "all";
 
 const RANGE_DAYS: Record<RangeKey, number> = { day: 1, week: 7, "15day": 15, month: 30 };
-const RANGE_LABEL: Record<RangeKey, string> = { day: "Today", week: "Week", "15day": "15 Days", month: "Month" };
+const RANGE_LABEL: Record<RangeKey, string> = {
+  day: "Today",
+  week: "Week",
+  "15day": "15 Days",
+  month: "Month",
+};
 const GLOBAL_VALUE = "all";
 
 interface BranchOption {
   id: number;
   name: string;
-  // Only present when branches are fetched with detail=1 — used to build
-  // a combined opening/closing axis for the global (all-branches) view.
+  isActive?: boolean;
   openingTime?: string;
   closingTime?: string;
   slotDurationMinutes?: number;
@@ -84,8 +86,7 @@ interface AppointmentRow {
   phoneNumber: string | null;
   vehicle: string | null;
   type: string;
-  // advisor: string | null;
-  // bay: string;
+  bay?: string | null;
   slotDate: string;
   slotTime: string;
   source: string;
@@ -100,6 +101,7 @@ interface CalendarSlot {
   status: "open" | "full" | "blocked";
   booked: number;
   capacity: number;
+  blockId: number | null;
   blockReason: string | null;
   appointments: AppointmentRow[];
 }
@@ -121,19 +123,28 @@ interface CalendarBranchInfo {
   maxPerSlot: number;
 }
 
-interface SlotBlock {
-  id: number;
-  branchId: number;
-  date: string;
-  startTime: string;
-  endTime: string;
-  reason: string;
-  createdBy: string | null;
-  createdAt: string | null;
+/* =========================================================
+   API ERROR → MESSAGE
+========================================================= */
+
+const API_ERROR_TEXT: Record<string, string> = {
+  slot_taken: "That slot is already full.",
+  branch_closed_weekly_off: "The branch is closed on this day (weekly off).",
+  branch_closed_holiday: "The branch is closed on this day (holiday).",
+  invalid_slot_time: "Pick a time that matches the branch's slot timings.",
+  slot_blocked: "That time is blocked for bookings.",
+  "branch not found": "Branch not found.",
+};
+
+function apiErrorMessage(err: any, fallback: string) {
+  if (err?.response?.status === 403) return "You don't have permission to do this.";
+  const code = err?.response?.data?.error;
+  if (!code) return fallback;
+  return API_ERROR_TEXT[code] ?? String(code);
 }
 
 /* =========================================================
-   DATE / TIME HELPERS — plain local-date arithmetic, no library
+   DATE / TIME HELPERS
 ========================================================= */
 
 function todayIso() {
@@ -150,7 +161,7 @@ function addDays(iso: string, days: number) {
 function addMinutesToTime(hhmm: string, minutes: number) {
   const [h, m] = hhmm.split(":").map(Number);
   const total = h * 60 + m + minutes;
-  const hh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+  const hh = Math.floor((((total % 1440) + 1440) % 1440) / 60);
   const mm = ((total % 60) + 60) % 60;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
@@ -161,7 +172,7 @@ function timeToMinutes(hhmm: string) {
 }
 
 function minutesToTime(total: number) {
-  const hh = Math.floor(((total % 1440) + 1440) % 1440 / 60);
+  const hh = Math.floor((((total % 1440) + 1440) % 1440) / 60);
   const mm = ((total % 60) + 60) % 60;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
@@ -180,22 +191,15 @@ function displayTime(hhmm: string) {
   return `${hour12}:${String(m).padStart(2, "0")} ${period}`;
 }
 
-// A slot's capacity can be 5, 10, 20… far more than a grid cell can
-// show without turning into a wall of text. Show a couple inline and
-// push the rest behind a "…" popup (click anywhere on the cell).
 const MAX_CHIPS_PER_CELL = 2;
 
-// StatusBadge was built against the mock statuses (upcoming/completed/
-// missed/cancelled/rescheduled) — the DB's "confirmed" means the same
-// thing as "upcoming" here, everything else already lines up.
 function toBadgeStatus(status: string) {
   return status === "confirmed" ? "upcoming" : status;
 }
 
-// Appointment chip styling for the calendar grid — colored by status so
-// the board reads at a glance, same idea as any real calendar app.
 function apptStatusClasses(a: AppointmentRow) {
-  if (a.isManualHold) return "border-dashed border-muted-foreground/50 text-muted-foreground bg-muted/40";
+  if (a.isManualHold)
+    return "border-dashed border-muted-foreground/50 text-muted-foreground bg-muted/40";
   switch (a.status) {
     case "missed":
     case "cancelled":
@@ -213,8 +217,6 @@ function apptChipClass(a: AppointmentRow, textClass = "text-[11px]", paddingClas
   return `rounded ${paddingClass} ${textClass} leading-tight border w-full text-left truncate ${apptStatusClasses(a)}`;
 }
 
-// Raw source values come straight off the DB ("ai_call", "walk_in", "manual",
-// "web", …) — humanize them for display instead of showing snake_case.
 const SOURCE_LABELS: Record<string, string> = {
   ai_call: "AI Call",
   ivr: "IVR",
@@ -234,9 +236,6 @@ function formatSource(source: string | null | undefined) {
     .join(" ");
 }
 
-// Manual holds have no real customer attached — "Manual Slot - <Branch>"
-// reads better in the grid/list than a bare dash. includeBranch=false
-// when the branch is already shown in its own column alongside this.
 function apptDisplayName(a: AppointmentRow, includeBranch = true) {
   if (a.isManualHold) {
     return includeBranch && a.branchName ? `Manual Slot - ${a.branchName}` : "Manual Slot";
@@ -244,19 +243,11 @@ function apptDisplayName(a: AppointmentRow, includeBranch = true) {
   return a.customerName;
 }
 
-// Every distinct slot time worth showing as a grid row: every slot the
-// branch grid defines (so empty/open times show up too, not just
-// booked ones), plus — belt and braces — any appointment time that
-// happens to fall outside that set (global mode has no slot grid at
-// all, so this is the only source of rows there).
-// Fallback business-hours axis (9 AM – 7 PM, hourly) used only when
-// there's no single branch's hours to go by (global, cross-branch view).
-const DEFAULT_TIME_ROWS = Array.from({ length: 11 }, (_, i) => `${String(9 + i).padStart(2, "0")}:00`);
+const DEFAULT_TIME_ROWS = Array.from(
+  { length: 11 },
+  (_, i) => `${String(9 + i).padStart(2, "0")}:00`,
+);
 
-// Combined opening/closing window across every branch, in minutes since
-// midnight — used to build the global (all-branches) time axis: starts
-// at whichever branch opens earliest, ends just before whichever branch
-// closes latest (so "closes at 6" means the last row shown is 5, not 6).
 interface HoursRange {
   openMin: number;
   closeMin: number;
@@ -273,21 +264,21 @@ function buildTimeRows(
   const set = new Set<string>();
 
   if (!isGlobal && branchInfo?.openingTime && branchInfo?.closingTime) {
-    // Left-hand axis follows the branch's own opening/closing time,
-    // stepped by its slot duration, so the grid never shows hours the
-    // branch isn't even open for.
     const openMin = timeToMinutes(branchInfo.openingTime);
     const closeMin = timeToMinutes(branchInfo.closingTime);
-    const step = branchInfo.slotDurationMinutes && branchInfo.slotDurationMinutes > 0
-      ? branchInfo.slotDurationMinutes
-      : 60;
+    const step =
+      branchInfo.slotDurationMinutes && branchInfo.slotDurationMinutes > 0
+        ? branchInfo.slotDurationMinutes
+        : 60;
     for (let t = openMin; t < closeMin; t += step) {
       set.add(minutesToTime(t));
     }
   } else if (isGlobal && globalHoursRange) {
-    // Global axis spans every branch's hours: earliest opening to latest
-    // closing, so no branch's slots are ever cut off from the grid.
-    for (let t = globalHoursRange.openMin; t < globalHoursRange.closeMin; t += globalHoursRange.step) {
+    for (
+      let t = globalHoursRange.openMin;
+      t < globalHoursRange.closeMin;
+      t += globalHoursRange.step
+    ) {
       set.add(minutesToTime(t));
     }
   } else {
@@ -319,12 +310,12 @@ export default function AppointmentsPage() {
   const [selectedDate, setSelectedDate] = useState(todayIso());
 
   const [appointments, setAppointments] = useState<AppointmentRow[]>([]);
-  // Blocks for every visible day, keyed by date — branch mode only
-  // (a block belongs to one branch, so this is empty in global mode).
-  const [blocksByDate, setBlocksByDate] = useState<Record<string, SlotBlock[]>>({});
 
   const [loadingCalendar, setLoadingCalendar] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Bumped to re-run the load effect after a write (manual slot / block).
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [manualSlotOpen, setManualSlotOpen] = useState(false);
   const [manualSlotBranchId, setManualSlotBranchId] = useState<number | null>(null);
@@ -340,44 +331,26 @@ export default function AppointmentsPage() {
   const [blockReason, setBlockReason] = useState("");
   const [blockSaving, setBlockSaving] = useState(false);
 
-  // A slot can hold more customers than comfortably fit in one grid
-  // cell (capacity 5, 10, 20…) — the cell itself only teases a few,
-  // this dialog shows the full list on click.
-  const [slotDetail, setSlotDetail] = useState<{ date: string; time: string; appts: AppointmentRow[] } | null>(null);
+  const [slotDetail, setSlotDetail] = useState<{
+    date: string;
+    time: string;
+    appts: AppointmentRow[];
+  } | null>(null);
 
   const end = useMemo(() => addDays(start, RANGE_DAYS[rangeKey] - 1), [start, rangeKey]);
 
-  /* ---------- load branches once ---------- */
+  /* ---------- load branches once (active only) ---------- */
   useEffect(() => {
-    server_get_data(get_branches, { dealer_id: 1, detail: 1 })
+    server_get_data(get_branches, { detail: 1 })
       .then((res) => {
-        const list: BranchOption[] = res?.branches ?? [];
-
+        const list: BranchOption[] = (res?.branches ?? []).filter(
+          (b: BranchOption) => b.isActive !== false,
+        );
         setBranches(list);
-
-        // Default to "All branches"
         setBranchId((cur) => cur ?? GLOBAL_VALUE);
       })
-      .catch(() => setError("Couldn't load branches."));
+      .catch((err) => setError(apiErrorMessage(err, "Couldn't load branches.")));
   }, []);
-
-  async function loadBlocksForDays(bId: number, daysList: CalendarDay[]) {
-    const entries = await Promise.all(
-      daysList.map(async (d) => {
-        try {
-          const res = await server_get_data(get_slot_blocks(bId, d.date));
-          return [d.date, res?.blocks ?? []] as const;
-        } catch {
-          return [d.date, []] as const;
-        }
-      }),
-    );
-    const map: Record<string, SlotBlock[]> = {};
-    entries.forEach(([date, blocks]) => {
-      map[date] = blocks;
-    });
-    return map;
-  }
 
   /* ---------- load calendar + appointment list for the window ---------- */
   useEffect(() => {
@@ -386,23 +359,26 @@ export default function AppointmentsPage() {
     setLoadingCalendar(true);
     setError(null);
 
+    const pickSelectedDate = (dates: string[]) => {
+      if (!dates.includes(selectedDate)) {
+        setSelectedDate(dates.includes(todayIso()) ? todayIso() : (dates[0] ?? start));
+      }
+    };
+
     if (isGlobal) {
-      // Global view: no single branch's hours/capacity apply, so there's
-      // no slot grid — just the raw appointments across every branch,
-      // laid over a plain date skeleton for the window.
       server_get_data(get_appointments, { start, end })
         .then((res) => {
           if (cancelled) return;
-          const list: AppointmentRow[] = res?.appointments ?? [];
-          setAppointments(list);
+          setAppointments(res?.appointments ?? []);
           setBranchInfo(null);
-          setBlocksByDate({});
           const skeleton: CalendarDay[] = [];
           let cur = start;
           while (cur <= end) {
             skeleton.push({
               date: cur,
-              weekday: new Date(`${cur}T00:00:00`).toLocaleDateString(undefined, { weekday: "short" }),
+              weekday: new Date(`${cur}T00:00:00`).toLocaleDateString(undefined, {
+                weekday: "short",
+              }),
               isWeeklyOff: false,
               isHoliday: false,
               slots: [],
@@ -410,13 +386,10 @@ export default function AppointmentsPage() {
             cur = addDays(cur, 1);
           }
           setDays(skeleton);
-          const dates = skeleton.map((d) => d.date);
-          if (!dates.includes(selectedDate)) {
-            setSelectedDate(dates.includes(todayIso()) ? todayIso() : dates[0] ?? start);
-          }
+          pickSelectedDate(skeleton.map((d) => d.date));
         })
-        .catch(() => {
-          if (!cancelled) setError("Couldn't load appointments. Try again.");
+        .catch((err) => {
+          if (!cancelled) setError(apiErrorMessage(err, "Couldn't load appointments. Try again."));
         })
         .finally(() => {
           if (!cancelled) setLoadingCalendar(false);
@@ -426,21 +399,16 @@ export default function AppointmentsPage() {
         server_get_data(get_branch_calendar(branchId, start, rangeKey)),
         server_get_data(get_appointments, { branch_id: branchId, start, end }),
       ])
-        .then(async ([calRes, listRes]) => {
+        .then(([calRes, listRes]) => {
           if (cancelled) return;
           const newDays: CalendarDay[] = calRes?.days ?? [];
           setBranchInfo(calRes?.branch ?? null);
           setDays(newDays);
           setAppointments(listRes?.appointments ?? []);
-          const dates = newDays.map((d) => d.date);
-          if (!dates.includes(selectedDate)) {
-            setSelectedDate(dates.includes(todayIso()) ? todayIso() : dates[0] ?? start);
-          }
-          const blocks = await loadBlocksForDays(branchId, newDays);
-          if (!cancelled) setBlocksByDate(blocks);
+          pickSelectedDate(newDays.map((d) => d.date));
         })
-        .catch(() => {
-          if (!cancelled) setError("Couldn't load the calendar. Try again.");
+        .catch((err) => {
+          if (!cancelled) setError(apiErrorMessage(err, "Couldn't load the calendar. Try again."));
         })
         .finally(() => {
           if (!cancelled) setLoadingCalendar(false);
@@ -451,12 +419,8 @@ export default function AppointmentsPage() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branchId, start, rangeKey, isGlobal]);
+  }, [branchId, start, rangeKey, isGlobal, reloadKey]);
 
-  // Combined hours window across every branch (earliest open → latest
-  // close), used only for the global time axis. Branches without hours
-  // data (list fetched without detail=1, or a branch missing hours) are
-  // skipped rather than collapsing the whole range to 00:00–00:00.
   const globalHoursRange = useMemo<HoursRange | null>(() => {
     const withHours = branches.filter(
       (b): b is BranchOption & { openingTime: string; closingTime: string } =>
@@ -466,7 +430,11 @@ export default function AppointmentsPage() {
     const openMin = Math.min(...withHours.map((b) => timeToMinutes(b.openingTime)));
     const closeMin = Math.max(...withHours.map((b) => timeToMinutes(b.closingTime)));
     if (closeMin <= openMin) return null;
-    const step = Math.min(...withHours.map((b) => (b.slotDurationMinutes && b.slotDurationMinutes > 0 ? b.slotDurationMinutes : 60)));
+    const step = Math.min(
+      ...withHours.map((b) =>
+        b.slotDurationMinutes && b.slotDurationMinutes > 0 ? b.slotDurationMinutes : 60,
+      ),
+    );
     return { openMin, closeMin, step };
   }, [branches]);
 
@@ -480,27 +448,12 @@ export default function AppointmentsPage() {
   const cancelled = appointments.filter((a) => a.status === "cancelled").length;
 
   function refreshCalendar() {
-    if (branchId === null) return;
-    if (isGlobal) {
-      server_get_data(get_appointments, { start, end }).then((res) =>
-        setAppointments(res?.appointments ?? []),
-      );
-      return;
-    }
-    server_get_data(get_branch_calendar(branchId, start, rangeKey)).then(async (res) => {
-      setBranchInfo(res?.branch ?? null);
-      const newDays: CalendarDay[] = res?.days ?? [];
-      setDays(newDays);
-      setBlocksByDate(await loadBlocksForDays(branchId, newDays));
-    });
-    server_get_data(get_appointments, { branch_id: branchId, start, end }).then((res) =>
-      setAppointments(res?.appointments ?? []),
-    );
+    setReloadKey((k) => k + 1);
   }
 
   function openManualSlot(prefillDate?: string, prefillTime?: string, prefillBranchId?: number) {
     setManualSlotBranchId(
-      prefillBranchId ?? (typeof branchId === "number" ? branchId : branches[0]?.id ?? null),
+      prefillBranchId ?? (typeof branchId === "number" ? branchId : (branches[0]?.id ?? null)),
     );
     setManualSlotDate(prefillDate ?? selectedDate ?? todayIso());
     setManualSlotTime(prefillTime ?? "");
@@ -517,21 +470,29 @@ export default function AppointmentsPage() {
         time: manualSlotTime,
       });
       if (!res?.success) {
-        setError(res?.error === "slot_taken" ? "That slot is already full." : `Couldn't create the slot (${res?.error ?? "unknown error"}).`);
+        setError(
+          API_ERROR_TEXT[res?.error] ??
+            `Couldn't create the slot (${res?.error ?? "unknown error"}).`,
+        );
         return;
       }
       setManualSlotOpen(false);
       refreshCalendar();
-    } catch {
-      setError("Couldn't create the manual slot. Try again.");
+    } catch (err) {
+      setError(apiErrorMessage(err, "Couldn't create the manual slot. Try again."));
     } finally {
       setManualSlotSaving(false);
     }
   }
 
-  function openBlock(prefillDate?: string, prefillStart?: string, prefillEnd?: string, prefillBranchId?: number) {
+  function openBlock(
+    prefillDate?: string,
+    prefillStart?: string,
+    prefillEnd?: string,
+    prefillBranchId?: number,
+  ) {
     setBlockBranchId(
-      prefillBranchId ?? (typeof branchId === "number" ? branchId : branches[0]?.id ?? null),
+      prefillBranchId ?? (typeof branchId === "number" ? branchId : (branches[0]?.id ?? null)),
     );
     setBlockDate(prefillDate ?? selectedDate ?? todayIso());
     setBlockStart(prefillStart ?? "");
@@ -557,8 +518,8 @@ export default function AppointmentsPage() {
       }
       setBlockOpen(false);
       refreshCalendar();
-    } catch {
-      setError("Couldn't block that range. Try again.");
+    } catch (err) {
+      setError(apiErrorMessage(err, "Couldn't block that range. Try again."));
     } finally {
       setBlockSaving(false);
     }
@@ -568,16 +529,13 @@ export default function AppointmentsPage() {
     try {
       await server_delete_data(delete_slot_block(id));
       refreshCalendar();
-    } catch {
-      setError("Couldn't remove that block. Try again.");
+    } catch (err) {
+      setError(apiErrorMessage(err, "Couldn't remove that block. Try again."));
     }
   }
 
   const slotStep = branchInfo ? branchInfo.slotDurationMinutes * 60 : 1800;
 
-  // As more days get crammed into the grid (15-day / month views), shrink
-  // rows, columns, padding and chip text so the whole window fits with a lot
-  // less scrolling than the day/week layout needs.
   const density: "normal" | "compact" | "ultra" =
     rangeKey === "month" ? "ultra" : rangeKey === "15day" ? "compact" : "normal";
   const cellMinHeightClass =
@@ -585,15 +543,19 @@ export default function AppointmentsPage() {
   const cellPaddingClass = density === "ultra" ? "p-0.5" : "p-1";
   const colMinWidthPx = density === "ultra" ? 56 : density === "compact" ? 92 : 130;
   const timeColWidthPx = density === "ultra" ? 44 : 64;
-  const chipTextClass = density === "ultra" ? "text-[9px]" : density === "compact" ? "text-[10px]" : "text-[11px]";
-  const chipPaddingClass = density === "ultra" ? "px-1 py-0.5" : density === "compact" ? "px-1 py-0.5" : "px-1.5 py-1";
+  const chipTextClass =
+    density === "ultra" ? "text-[9px]" : density === "compact" ? "text-[10px]" : "text-[11px]";
+  const chipPaddingClass =
+    density === "ultra" ? "px-1 py-0.5" : density === "compact" ? "px-1 py-0.5" : "px-1.5 py-1";
   const maxChipsPerCell = density === "normal" ? MAX_CHIPS_PER_CELL : 1;
-  const headerPaddingClass = density === "ultra" ? "py-1" : density === "compact" ? "py-1.5" : "py-2";
-  const headerDateClass = density === "ultra" ? "text-[11px] font-semibold" : "text-sm font-semibold";
+  const headerPaddingClass =
+    density === "ultra" ? "py-1" : density === "compact" ? "py-1.5" : "py-2";
+  const headerDateClass =
+    density === "ultra" ? "text-[11px] font-semibold" : "text-sm font-semibold";
   const headerWeekdayClass = density === "ultra" ? "text-[9px]" : "text-[11px]";
   const timeLabelClass = density === "ultra" ? "text-[9px]" : "text-[11px]";
 
-  /* ---------- one cell of the week/15-day time-grid ---------- */
+  /* ---------- one cell of the time-grid ---------- */
   function renderGridCell(day: CalendarDay, time: string) {
     const closedDay = !isGlobal && (day.isHoliday || day.isWeeklyOff);
     if (closedDay) {
@@ -607,11 +569,15 @@ export default function AppointmentsPage() {
 
     const cellAppts: AppointmentRow[] = isGlobal
       ? appointments.filter((a) => a.slotDate === day.date && a.slotTime === time)
-      : slot?.appointments ?? [];
+      : (slot?.appointments ?? []);
     const status = slot?.status;
-    const block = !isGlobal
-      ? (blocksByDate[day.date] ?? []).find((b) => b.startTime <= time && time < b.endTime)
-      : null;
+
+    // Block info now comes straight off the calendar slot (blockId /
+    // blockReason) -- no separate per-day slot-blocks request.
+    const block =
+      !isGlobal && status === "blocked" && slot?.blockId
+        ? { id: slot.blockId, reason: slot.blockReason ?? "" }
+        : null;
 
     const bgClass =
       status === "blocked"
@@ -627,22 +593,26 @@ export default function AppointmentsPage() {
         key={time}
         role={hasAppts ? "button" : undefined}
         tabIndex={hasAppts ? 0 : undefined}
-        onClick={hasAppts ? () => setSlotDetail({ date: day.date, time, appts: cellAppts }) : undefined}
+        onClick={
+          hasAppts ? () => setSlotDetail({ date: day.date, time, appts: cellAppts }) : undefined
+        }
         onKeyDown={
           hasAppts
             ? (e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setSlotDetail({ date: day.date, time, appts: cellAppts });
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setSlotDetail({ date: day.date, time, appts: cellAppts });
+                }
               }
-            }
             : undefined
         }
         aria-label={hasAppts ? `Show all ${cellAppts.length} appointments` : undefined}
         className={`group relative border-b border-r ${cellPaddingClass} ${cellMinHeightClass} ${bgClass} ${hasAppts ? "cursor-pointer" : ""}`}
       >
         {block && (
-          <div className={`flex items-center justify-between gap-1 ${chipTextClass} text-amber-700 bg-amber-500/10 rounded px-1 py-0.5 ${density === "normal" ? "mb-1" : "mb-0.5"}`}>
+          <div
+            className={`flex items-center justify-between gap-1 ${chipTextClass} text-amber-700 bg-amber-500/10 rounded px-1 py-0.5 ${density === "normal" ? "mb-1" : "mb-0.5"}`}
+          >
             <span className="truncate">{block.reason || "Blocked"}</span>
             <button
               onClick={(e) => {
@@ -668,16 +638,24 @@ export default function AppointmentsPage() {
                 a.bay ? `Bay ${a.bay}` : null,
                 isGlobal && !a.isManualHold ? a.branchName : null,
                 a.notes || null,
-              ].filter(Boolean).join(" · ")}
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             >
               <span className="font-medium">{apptDisplayName(a)}</span>
-              {density === "normal" && !a.isManualHold && <span className="opacity-70"> · {a.type}</span>}
+              {density === "normal" && !a.isManualHold && (
+                <span className="opacity-70"> · {a.type}</span>
+              )}
               {density === "normal" && a.bay && <span className="opacity-60"> · Bay {a.bay}</span>}
-              {density === "normal" && isGlobal && !a.isManualHold && a.branchName && <span className="opacity-60"> · {a.branchName}</span>}
+              {density === "normal" && isGlobal && !a.isManualHold && a.branchName && (
+                <span className="opacity-60"> · {a.branchName}</span>
+              )}
             </div>
           ))}
           {cellAppts.length > maxChipsPerCell && (
-            <div className={`w-full rounded ${chipPaddingClass} ${chipTextClass} leading-tight text-left text-muted-foreground bg-muted/50 truncate`}>
+            <div
+              className={`w-full rounded ${chipPaddingClass} ${chipTextClass} leading-tight text-left text-muted-foreground bg-muted/50 truncate`}
+            >
               +{cellAppts.length - maxChipsPerCell} more…
             </div>
           )}
@@ -703,7 +681,11 @@ export default function AppointmentsPage() {
               className={density === "normal" ? "size-6" : "size-5"}
               onClick={(e) => {
                 e.stopPropagation();
-                openBlock(day.date, time, addMinutesToTime(time, branchInfo?.slotDurationMinutes ?? 60));
+                openBlock(
+                  day.date,
+                  time,
+                  addMinutesToTime(time, branchInfo?.slotDurationMinutes ?? 60),
+                );
               }}
               aria-label="Block this time"
             >
@@ -722,7 +704,12 @@ export default function AppointmentsPage() {
         description="Workshop bookings — auto-created by AI calls and WhatsApp confirmations."
         actions={
           <div className="flex gap-2">
-            <Button size="sm" variant="outline" onClick={() => openBlock()} disabled={branchId === null}>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => openBlock()}
+              disabled={branchId === null}
+            >
               <Ban className="size-4" />
               Block time
             </Button>
@@ -754,9 +741,6 @@ export default function AppointmentsPage() {
                 >
                   <ChevronLeft className="size-4" />
                 </Button>
-                {/* <Button variant="outline" size="sm" onClick={() => setStart(todayIso())}>
-                  Today
-                </Button> */}
                 <Button
                   variant="outline"
                   size="icon"
@@ -768,7 +752,9 @@ export default function AppointmentsPage() {
               </>
             )}
             <span className="text-sm text-muted-foreground ml-1">
-              {rangeKey === "day" ? displayDate(start) : `${displayDate(start)} – ${displayDate(end)}`}
+              {rangeKey === "day"
+                ? displayDate(start)
+                : `${displayDate(start)} – ${displayDate(end)}`}
             </span>
           </div>
 
@@ -840,22 +826,13 @@ export default function AppointmentsPage() {
                     Loading calendar…
                   </div>
                 ) : (
-                  /* ---- Time-grid calendar — shared by day / week / 15-day / month ----
-                     Rows = time-of-day (from the branch's own opening/closing
-                     hours), columns = each day in the window — the same
-                     layout any calendar app uses, so appointments, open
-                     slots, blocked ranges, holidays, and weekly-offs are all
-                     visible at once without clicking into a day. Always
-                     renders (timeRows falls back to a default hourly axis
-                     when there's no single branch's hours to go by) so the
-                     calendar shape shows up even on a completely empty
-                     window. */
                   <div className="max-h-[70vh] overflow-auto border rounded-md">
                     <div
                       className="grid"
-                      style={{ gridTemplateColumns: `${timeColWidthPx}px repeat(${days.length}, minmax(${colMinWidthPx}px, 1fr))` }}
+                      style={{
+                        gridTemplateColumns: `${timeColWidthPx}px repeat(${days.length}, minmax(${colMinWidthPx}px, 1fr))`,
+                      }}
                     >
-                      {/* corner */}
                       <div className="sticky top-0 left-0 z-30 bg-background border-b border-r" />
                       {days.map((day) => {
                         const isToday = day.date === todayIso();
@@ -866,10 +843,13 @@ export default function AppointmentsPage() {
                             key={day.date}
                             type="button"
                             onClick={() => setSelectedDate(day.date)}
-                            className={`sticky top-0 z-20 bg-background border-b border-r text-center ${headerPaddingClass} ${isToday ? "bg-primary/5" : ""
-                              } ${closed ? "bg-muted/60" : ""} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
+                            className={`sticky top-0 z-20 bg-background border-b border-r text-center ${headerPaddingClass} ${
+                              isToday ? "bg-primary/5" : ""
+                            } ${closed ? "bg-muted/60" : ""} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
                           >
-                            <div className={`${headerWeekdayClass} text-muted-foreground`}>{day.weekday}</div>
+                            <div className={`${headerWeekdayClass} text-muted-foreground`}>
+                              {day.weekday}
+                            </div>
                             <div className={`${headerDateClass} ${isToday ? "text-primary" : ""}`}>
                               {displayDate(day.date)}
                             </div>
@@ -884,7 +864,9 @@ export default function AppointmentsPage() {
 
                       {timeRows.map((time) => (
                         <Fragment key={time}>
-                          <div className={`sticky left-0 z-10 bg-background border-b border-r ${timeLabelClass} text-muted-foreground text-right pr-2 ${headerPaddingClass}`}>
+                          <div
+                            className={`sticky left-0 z-10 bg-background border-b border-r ${timeLabelClass} text-muted-foreground text-right pr-2 ${headerPaddingClass}`}
+                          >
                             {displayTime(time)}
                           </div>
                           {days.map((day) => renderGridCell(day, time))}
@@ -896,21 +878,18 @@ export default function AppointmentsPage() {
               </CardContent>
             </Card>
 
-            {/* Selected day detail — global mode only. The grid above has
-               no single branch's slot data to lay out in global mode, so
-               this is the only place a day's cross-branch appointments are
-               listed as a flat list. Branch mode shows everything it needs
-               directly in the time-grid above. */}
             {isGlobal && (
               <Card>
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold">
-                      {selectedDate ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
-                        weekday: "long",
-                        day: "numeric",
-                        month: "long",
-                      }) : "—"}
+                      {selectedDate
+                        ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
+                            weekday: "long",
+                            day: "numeric",
+                            month: "long",
+                          })
+                        : "—"}
                     </h3>
                   </div>
 
@@ -949,8 +928,7 @@ export default function AppointmentsPage() {
             )}
           </TabsContent>
 
-          {/* List — already global-aware: it just renders whatever the
-             branch selector loaded above, branch-specific or all-branch. */}
+          {/* List */}
           <TabsContent value="list" className="mt-4">
             <Card>
               <CardContent className="p-0">
@@ -961,8 +939,6 @@ export default function AppointmentsPage() {
                       {isGlobal && <TableHead>Branch</TableHead>}
                       <TableHead>Vehicle</TableHead>
                       <TableHead>Type</TableHead>
-                      {/* <TableHead>Advisor</TableHead>
-                      <TableHead>Bay</TableHead> */}
                       <TableHead>When</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Status</TableHead>
@@ -978,9 +954,9 @@ export default function AppointmentsPage() {
                           <TableCell className="text-xs">{appointment.branchName ?? "—"}</TableCell>
                         )}
                         <TableCell className="text-xs">{appointment.vehicle ?? "—"}</TableCell>
-                        <TableCell className="text-sm">{appointment.isManualHold ? "—" : appointment.type}</TableCell>
-                        {/* <TableCell className="text-sm">{appointment.advisor ?? "—"}</TableCell>
-                        <TableCell className="text-xs">{appointment.bay || "—"}</TableCell> */}
+                        <TableCell className="text-sm">
+                          {appointment.isManualHold ? "—" : appointment.type}
+                        </TableCell>
                         <TableCell className="text-xs">
                           {formatDateTime(`${appointment.slotDate}T${appointment.slotTime}:00`)}
                         </TableCell>
@@ -994,7 +970,10 @@ export default function AppointmentsPage() {
                     ))}
                     {appointments.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={isGlobal ? 9 : 8} className="text-center text-sm text-muted-foreground py-8">
+                        <TableCell
+                          colSpan={isGlobal ? 7 : 6}
+                          className="text-center text-sm text-muted-foreground py-8"
+                        >
                           No appointments in this window.
                         </TableCell>
                       </TableRow>
@@ -1152,21 +1131,24 @@ export default function AppointmentsPage() {
             <Button variant="outline" onClick={() => setBlockOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={submitBlock} disabled={blockSaving || !blockStart || !blockEnd || !blockBranchId}>
+            <Button
+              onClick={submitBlock}
+              disabled={blockSaving || !blockStart || !blockEnd || !blockBranchId}
+            >
               {blockSaving ? "Blocking…" : "Block range"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Slot detail — full customer list for one date+time cell, since
-         a slot's booked count can run well past what a grid cell can
-         show inline. */}
+      {/* Slot detail */}
       <Dialog open={!!slotDetail} onOpenChange={(open) => !open && setSlotDetail(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>
-              {slotDetail ? `${displayDate(slotDetail.date)} · ${displayTime(slotDetail.time)}` : "Slot"}
+              {slotDetail
+                ? `${displayDate(slotDetail.date)} · ${displayTime(slotDetail.time)}`
+                : "Slot"}
             </DialogTitle>
             <DialogDescription>
               {slotDetail

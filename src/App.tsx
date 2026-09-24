@@ -10,11 +10,10 @@ import Dashboard from "./routes/_app.dashboard";
 
 import Agents from "./routes/Agents";
 import AgentDetails from "./routes/AgentDetails";
-import AgentTraining from "./routes/AgentTraining";
 import AgentRecordings from "./routes/AgentRecordings";
 
 import Analytics from "./routes/_app.analytics.index";
-import Appointments from "./routes/_app.appointments.index";
+import Appointments from "./routes/Appointments";
 
 import Callbacks from "./routes/_app.callbacks.index";
 
@@ -117,8 +116,6 @@ export default function App() {
           {/* ================= AGENTS ================= */}
 
           <Route path="/agents" element={<Agents />} />
-
-          <Route path="/agents/training" element={<AgentTraining />} />
 
           <Route path="/agents/recordings" element={<AgentRecordings />} />
 
