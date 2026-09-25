@@ -1039,9 +1039,6 @@ export {
   patch_profile,
   post_change_password,
   patch_settings_voice,
-<<<<<<< HEAD
-};
-=======
   get_visit_batches,
   post_visit_upload,
   visit_batch_url,
@@ -1055,4 +1052,3 @@ export {
   get_visit_records,
   get_nav_badges,
 };
->>>>>>> c4a04f958a0f065e0241562cfc85c2b030663e36
