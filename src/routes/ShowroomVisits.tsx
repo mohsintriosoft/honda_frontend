@@ -618,6 +618,7 @@ function ImportsTab({ canEdit, onOpenRecords }: { canEdit: boolean; onOpenRecord
   const [file, setFile] = useState<File | null>(null);
   const [reportDate, setReportDate] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<number | null>(null);
   const [previewId, setPreviewId] = useState<number | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -652,11 +653,15 @@ function ImportsTab({ canEdit, onOpenRecords }: { canEdit: boolean; onOpenRecord
     }
     setUploading(true);
     setError(null);
+    setNotice(null);
     try {
-      const res = await server_upload_file(post_visit_upload, file, "file", {
-        report_date: reportDate || undefined,
-      });
+      // Only send report_date when one was actually picked -- an unset
+      // value would otherwise go out as the text "undefined".
+      const extra: Record<string, string> = {};
+      if (reportDate) extra.report_date = reportDate;
+      const res = await server_upload_file(post_visit_upload, file, "file", extra);
       if (!res?.success) throw { response: { data: res } };
+      if (res.warning) setNotice(res.warning);
       setFile(null);
       setReportDate("");
       if (fileInput.current) fileInput.current.value = "";
@@ -730,7 +735,7 @@ function ImportsTab({ canEdit, onOpenRecords }: { canEdit: boolean; onOpenRecord
               />
             </div>
             <div>
-              <Label className="text-xs">Force report date (single-sheet files only)</Label>
+              <Label className="text-xs">Report date — optional, one-sheet files only</Label>
               <Input
                 type="date"
                 className="mt-1 w-44"
@@ -749,6 +754,11 @@ function ImportsTab({ canEdit, onOpenRecords }: { canEdit: boolean; onOpenRecord
       {error && (
         <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {error}
+        </div>
+      )}
+      {notice && (
+        <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-800 dark:text-amber-300">
+          {notice}
         </div>
       )}
 
