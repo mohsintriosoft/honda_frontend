@@ -8,7 +8,7 @@ const NO_TOKEN_VALUES = ["0", "1", "", null, undefined];
 ========================================================= */
 
 let APL_LINK = "https://omhonda.triosoft.ai/";
-APL_LINK = "http://192.168.1.20:8000/";
+// APL_LINK = "http://192.168.1.20:8000/";
 // APL_LINK = "https://molecular-mama-riverside.ngrok-free.dev/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
@@ -894,11 +894,22 @@ function getListenWsUrl2(sessionId) {
   return `${wsBase}api/voice/ws/listen/${sessionId}/?token=${token}`;
 }
 
+function joinUrl(...parts) {
+  return parts
+    .map((p, i) => {
+      const s = String(p);
+      if (i === 0) return s.replace(/\/+$/, "");
+      return s.replace(/^\/+/, "").replace(/\/+$/, "");
+    })
+    .filter(Boolean)
+    .join("/");
+}
+
 function getAudioUrl(session) {
-  if (!session || (!session.recording_mixed && !session.recording_stereo)) {
+  if (!session || !session.id) {
     return "";
   }
-  return joinUrl(APL_LINK, `/api/recordings/${session.id}/audio/`) + "/";
+  return joinUrl(APL_LINK, "api/recordings", String(session.id), "audio") + "/";
 }
 /* =========================================================
    EXPORT

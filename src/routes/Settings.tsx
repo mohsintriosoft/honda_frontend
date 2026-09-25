@@ -497,278 +497,278 @@ function CallingTab({ ws, onSaved }: { ws: Workspace; onSaved: (w: Workspace) =>
    AI providers (settings.manage)
 ------------------------------------------------------------------ */
 
-function AiTab({ ws, onSaved }: { ws: Workspace; onSaved: (w: Workspace) => void }) {
-  const s = useSectionForm(ws.ai);
+// function AiTab({ ws, onSaved }: { ws: Workspace; onSaved: (w: Workspace) => void }) {
+//   const s = useSectionForm(ws.ai);
 
-  const providerSelect = (key: "llm_provider" | "stt_provider" | "tts_provider", label: string) => (
-    <div>
-      <Label>{label}</Label>
-      <Select value={s.form[key]} onValueChange={(v) => s.set(key, v)}>
-        <SelectTrigger className="mt-1">
-          <SelectValue placeholder="Select a provider" />
-        </SelectTrigger>
-        <SelectContent>
-          {ws.choices[key].map((c) => (
-            <SelectItem key={c.value} value={c.value}>
-              {c.label}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
+//   const providerSelect = (key: "llm_provider" | "stt_provider" | "tts_provider", label: string) => (
+//     <div>
+//       <Label>{label}</Label>
+//       <Select value={s.form[key]} onValueChange={(v) => s.set(key, v)}>
+//         <SelectTrigger className="mt-1">
+//           <SelectValue placeholder="Select a provider" />
+//         </SelectTrigger>
+//         <SelectContent>
+//           {ws.choices[key].map((c) => (
+//             <SelectItem key={c.value} value={c.value}>
+//               {c.label}
+//             </SelectItem>
+//           ))}
+//         </SelectContent>
+//       </Select>
+//     </div>
+//   );
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-display">AI providers</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4 max-w-lg">
-        <p className="text-sm text-muted-foreground">
-          Applies to new calls within about 30 seconds. Calls already running keep their provider.
-        </p>
-        {providerSelect("llm_provider", "Conversation (LLM)")}
-        {providerSelect("stt_provider", "Speech-to-text (STT)")}
-        {providerSelect("tts_provider", "Text-to-speech (TTS)")}
-        <div className="flex items-center justify-between rounded-md border p-3">
-          <div>
-            <div className="text-sm font-medium">Use knowledge base</div>
-            <div className="text-xs text-muted-foreground">
-              Let the agent answer from your uploaded documents.
-            </div>
-          </div>
-          <Switch checked={s.form.rag_enabled} onCheckedChange={(v) => s.set("rag_enabled", v)} />
-        </div>
-        <div>
-          <Label>Knowledge match threshold</Label>
-          <Input
-            className="mt-1 w-32"
-            type="number"
-            step="0.05"
-            min={0.05}
-            max={2}
-            value={s.form.rag_distance_threshold}
-            disabled={!s.form.rag_enabled}
-            onChange={(e) => s.set("rag_distance_threshold", Number(e.target.value))}
-          />
-          <p className="text-xs text-muted-foreground mt-1">
-            Lower is stricter. Documents further than this aren't used in answers.
-          </p>
-        </div>
-        <SaveRow
-          onSave={() =>
-            s.save(async (form) => {
-              const res = await server_patch_data(patch_workspace_settings, { ai: form });
-              if (!res?.success) throw { response: { data: res } };
-              onSaved(res);
-            })
-          }
-          saving={s.saving}
-          dirty={s.dirty}
-          saved={s.saved}
-          error={s.error}
-        />
-      </CardContent>
-    </Card>
-  );
-}
+//   return (
+//     <Card>
+//       <CardHeader>
+//         <CardTitle className="font-display">AI providers</CardTitle>
+//       </CardHeader>
+//       <CardContent className="space-y-4 max-w-lg">
+//         <p className="text-sm text-muted-foreground">
+//           Applies to new calls within about 30 seconds. Calls already running keep their provider.
+//         </p>
+//         {providerSelect("llm_provider", "Conversation (LLM)")}
+//         {providerSelect("stt_provider", "Speech-to-text (STT)")}
+//         {providerSelect("tts_provider", "Text-to-speech (TTS)")}
+//         <div className="flex items-center justify-between rounded-md border p-3">
+//           <div>
+//             <div className="text-sm font-medium">Use knowledge base</div>
+//             <div className="text-xs text-muted-foreground">
+//               Let the agent answer from your uploaded documents.
+//             </div>
+//           </div>
+//           <Switch checked={s.form.rag_enabled} onCheckedChange={(v) => s.set("rag_enabled", v)} />
+//         </div>
+//         <div>
+//           <Label>Knowledge match threshold</Label>
+//           <Input
+//             className="mt-1 w-32"
+//             type="number"
+//             step="0.05"
+//             min={0.05}
+//             max={2}
+//             value={s.form.rag_distance_threshold}
+//             disabled={!s.form.rag_enabled}
+//             onChange={(e) => s.set("rag_distance_threshold", Number(e.target.value))}
+//           />
+//           <p className="text-xs text-muted-foreground mt-1">
+//             Lower is stricter. Documents further than this aren't used in answers.
+//           </p>
+//         </div>
+//         <SaveRow
+//           onSave={() =>
+//             s.save(async (form) => {
+//               const res = await server_patch_data(patch_workspace_settings, { ai: form });
+//               if (!res?.success) throw { response: { data: res } };
+//               onSaved(res);
+//             })
+//           }
+//           saving={s.saving}
+//           dirty={s.dirty}
+//           saved={s.saved}
+//           error={s.error}
+//         />
+//       </CardContent>
+//     </Card>
+//   );
+// }
 
 /* ------------------------------------------------------------------
    Voices (agents.edit / settings.manage)
 ------------------------------------------------------------------ */
 
-function VoicesTab() {
-  const canToggle = hasPerm("settings.manage");
-  const [voices, setVoices] = useState<Voice[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busyId, setBusyId] = useState<number | null>(null);
-  const [form, setForm] = useState({ voice_name: "", gender: "female", provider_name: "Murf" });
-  const [adding, setAdding] = useState(false);
+// function VoicesTab() {
+//   const canToggle = hasPerm("settings.manage");
+//   const [voices, setVoices] = useState<Voice[] | null>(null);
+//   const [error, setError] = useState<string | null>(null);
+//   const [busyId, setBusyId] = useState<number | null>(null);
+//   const [form, setForm] = useState({ voice_name: "", gender: "female", provider_name: "Murf" });
+//   const [adding, setAdding] = useState(false);
 
-  async function load() {
-    try {
-      const res = await server_get_data(get_tts_voices);
-      setVoices(res?.voices ?? []);
-      setError(null);
-    } catch (err) {
-      setError(apiErrorMessage(err, "Couldn't load voices."));
-    }
-  }
+//   async function load() {
+//     try {
+//       const res = await server_get_data(get_tts_voices);
+//       setVoices(res?.voices ?? []);
+//       setError(null);
+//     } catch (err) {
+//       setError(apiErrorMessage(err, "Couldn't load voices."));
+//     }
+//   }
 
-  useEffect(() => {
-    load();
-  }, []);
+//   useEffect(() => {
+//     load();
+//   }, []);
 
-  async function toggle(v: Voice) {
-    setBusyId(v.id);
-    setError(null);
-    try {
-      const res = await server_patch_data(patch_settings_voice(v.id), { is_active: !v.is_active });
-      if (!res?.success) throw { response: { data: res } };
-      setVoices((list) => (list ?? []).map((x) => (x.id === v.id ? res.voice : x)));
-    } catch (err) {
-      setError(apiErrorMessage(err, "Couldn't update this voice."));
-    } finally {
-      setBusyId(null);
-    }
-  }
+//   async function toggle(v: Voice) {
+//     setBusyId(v.id);
+//     setError(null);
+//     try {
+//       const res = await server_patch_data(patch_settings_voice(v.id), { is_active: !v.is_active });
+//       if (!res?.success) throw { response: { data: res } };
+//       setVoices((list) => (list ?? []).map((x) => (x.id === v.id ? res.voice : x)));
+//     } catch (err) {
+//       setError(apiErrorMessage(err, "Couldn't update this voice."));
+//     } finally {
+//       setBusyId(null);
+//     }
+//   }
 
-  async function add() {
-    if (!form.voice_name.trim()) return;
-    setAdding(true);
-    setError(null);
-    try {
-      const res = await server_post_json(get_tts_voices, {
-        voice_name: form.voice_name.trim(),
-        gender: form.gender,
-        provider_name: form.provider_name.trim() || "Murf",
-      });
-      if (!res?.success) throw { response: { data: res } };
-      setForm((f) => ({ ...f, voice_name: "" }));
-      await load();
-    } catch (err) {
-      setError(apiErrorMessage(err, "Couldn't add this voice."));
-    } finally {
-      setAdding(false);
-    }
-  }
+//   async function add() {
+//     if (!form.voice_name.trim()) return;
+//     setAdding(true);
+//     setError(null);
+//     try {
+//       const res = await server_post_json(get_tts_voices, {
+//         voice_name: form.voice_name.trim(),
+//         gender: form.gender,
+//         provider_name: form.provider_name.trim() || "Murf",
+//       });
+//       if (!res?.success) throw { response: { data: res } };
+//       setForm((f) => ({ ...f, voice_name: "" }));
+//       await load();
+//     } catch (err) {
+//       setError(apiErrorMessage(err, "Couldn't add this voice."));
+//     } finally {
+//       setAdding(false);
+//     }
+//   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-display">AI voices</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Voices your agents can speak with. Assign one per agent from AI Agents.
-        </p>
+//   return (
+//     <Card>
+//       <CardHeader>
+//         <CardTitle className="font-display">AI voices</CardTitle>
+//       </CardHeader>
+//       <CardContent className="space-y-4">
+//         <p className="text-sm text-muted-foreground">
+//           Voices your agents can speak with. Assign one per agent from AI Agents.
+//         </p>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+//         {error && <p className="text-sm text-destructive">{error}</p>}
 
-        {voices === null && !error ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Loading voices…
-          </div>
-        ) : (
-          <div className="divide-y rounded-md border">
-            {(voices ?? []).length === 0 && (
-              <div className="p-3 text-sm text-muted-foreground">No voices yet. Add one below.</div>
-            )}
-            {(voices ?? []).map((v) => (
-              <div key={v.id} className="flex items-center justify-between gap-3 p-3">
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">{v.voice_name}</div>
-                  <div className="text-xs text-muted-foreground capitalize">
-                    {v.gender} • {v.provider_name}
-                  </div>
-                </div>
-                {canToggle ? (
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">
-                      {v.is_active ? "Active" : "Off"}
-                    </span>
-                    <Switch
-                      checked={v.is_active}
-                      disabled={busyId === v.id}
-                      onCheckedChange={() => toggle(v)}
-                      aria-label={`Turn ${v.voice_name} ${v.is_active ? "off" : "on"}`}
-                    />
-                  </div>
-                ) : (
-                  <Badge variant={v.is_active ? "outline" : "secondary"}>
-                    {v.is_active ? "Active" : "Off"}
-                  </Badge>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+//         {voices === null && !error ? (
+//           <div className="flex items-center gap-2 text-sm text-muted-foreground">
+//             <Loader2 className="size-4 animate-spin" /> Loading voices…
+//           </div>
+//         ) : (
+//           <div className="divide-y rounded-md border">
+//             {(voices ?? []).length === 0 && (
+//               <div className="p-3 text-sm text-muted-foreground">No voices yet. Add one below.</div>
+//             )}
+//             {(voices ?? []).map((v) => (
+//               <div key={v.id} className="flex items-center justify-between gap-3 p-3">
+//                 <div className="min-w-0">
+//                   <div className="text-sm font-medium">{v.voice_name}</div>
+//                   <div className="text-xs text-muted-foreground capitalize">
+//                     {v.gender} • {v.provider_name}
+//                   </div>
+//                 </div>
+//                 {canToggle ? (
+//                   <div className="flex items-center gap-2">
+//                     <span className="text-xs text-muted-foreground">
+//                       {v.is_active ? "Active" : "Off"}
+//                     </span>
+//                     <Switch
+//                       checked={v.is_active}
+//                       disabled={busyId === v.id}
+//                       onCheckedChange={() => toggle(v)}
+//                       aria-label={`Turn ${v.voice_name} ${v.is_active ? "off" : "on"}`}
+//                     />
+//                   </div>
+//                 ) : (
+//                   <Badge variant={v.is_active ? "outline" : "secondary"}>
+//                     {v.is_active ? "Active" : "Off"}
+//                   </Badge>
+//                 )}
+//               </div>
+//             ))}
+//           </div>
+//         )}
 
-        <div className="rounded-md border p-3 space-y-3 max-w-lg">
-          <div className="text-sm font-medium">Add a voice</div>
-          <div className="grid sm:grid-cols-3 gap-2">
-            <Input
-              placeholder="Voice name, e.g. Sunaina"
-              value={form.voice_name}
-              onChange={(e) => setForm((f) => ({ ...f, voice_name: e.target.value }))}
-              className="sm:col-span-3"
-            />
-            <Select
-              value={form.gender}
-              onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="female">Female</SelectItem>
-                <SelectItem value="male">Male</SelectItem>
-                <SelectItem value="neutral">Neutral</SelectItem>
-              </SelectContent>
-            </Select>
-            <Input
-              placeholder="Provider"
-              value={form.provider_name}
-              onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
-              className="sm:col-span-2"
-            />
-          </div>
-          <Button size="sm" onClick={add} disabled={adding || !form.voice_name.trim()}>
-            {adding && <Loader2 className="size-4 animate-spin" />}
-            Add voice
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+//         <div className="rounded-md border p-3 space-y-3 max-w-lg">
+//           <div className="text-sm font-medium">Add a voice</div>
+//           <div className="grid sm:grid-cols-3 gap-2">
+//             <Input
+//               placeholder="Voice name, e.g. Sunaina"
+//               value={form.voice_name}
+//               onChange={(e) => setForm((f) => ({ ...f, voice_name: e.target.value }))}
+//               className="sm:col-span-3"
+//             />
+//             <Select
+//               value={form.gender}
+//               onValueChange={(v) => setForm((f) => ({ ...f, gender: v }))}
+//             >
+//               <SelectTrigger>
+//                 <SelectValue />
+//               </SelectTrigger>
+//               <SelectContent>
+//                 <SelectItem value="female">Female</SelectItem>
+//                 <SelectItem value="male">Male</SelectItem>
+//                 <SelectItem value="neutral">Neutral</SelectItem>
+//               </SelectContent>
+//             </Select>
+//             <Input
+//               placeholder="Provider"
+//               value={form.provider_name}
+//               onChange={(e) => setForm((f) => ({ ...f, provider_name: e.target.value }))}
+//               className="sm:col-span-2"
+//             />
+//           </div>
+//           <Button size="sm" onClick={add} disabled={adding || !form.voice_name.trim()}>
+//             {adding && <Loader2 className="size-4 animate-spin" />}
+//             Add voice
+//           </Button>
+//         </div>
+//       </CardContent>
+//     </Card>
+//   );
+// }
 
 /* ------------------------------------------------------------------
    Branches (shortcut into the Branches pages)
 ------------------------------------------------------------------ */
 
-function BranchesTab() {
-  const [branches, setBranches] = useState<any[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+// function BranchesTab() {
+//   const [branches, setBranches] = useState<any[] | null>(null);
+//   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    server_get_data(get_branches)
-      .then((res) => setBranches(res?.branches ?? []))
-      .catch((err) => setError(apiErrorMessage(err, "Couldn't load branches.")));
-  }, []);
+//   useEffect(() => {
+//     server_get_data(get_branches)
+//       .then((res) => setBranches(res?.branches ?? []))
+//       .catch((err) => setError(apiErrorMessage(err, "Couldn't load branches.")));
+//   }, []);
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="font-display">Branches</CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-2">
-        <p className="text-sm text-muted-foreground">
-          Timings, weekly offs, holidays and slot capacity are set per branch.
-        </p>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        {branches === null && !error && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /> Loading branches…
-          </div>
-        )}
-        {(branches ?? []).map((b) => (
-          <Link
-            key={b.id}
-            to={`/branches/${b.id}`}
-            className="flex items-center justify-between border rounded-md p-3 hover:bg-accent transition-colors"
-          >
-            <span className="text-sm font-medium">{b.name}</span>
-            <ChevronRight className="size-4 text-muted-foreground" />
-          </Link>
-        ))}
-        {branches?.length === 0 && (
-          <p className="text-sm text-muted-foreground">No branches yet.</p>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+//   return (
+//     <Card>
+//       <CardHeader>
+//         <CardTitle className="font-display">Branches</CardTitle>
+//       </CardHeader>
+//       <CardContent className="space-y-2">
+//         <p className="text-sm text-muted-foreground">
+//           Timings, weekly offs, holidays and slot capacity are set per branch.
+//         </p>
+//         {error && <p className="text-sm text-destructive">{error}</p>}
+//         {branches === null && !error && (
+//           <div className="flex items-center gap-2 text-sm text-muted-foreground">
+//             <Loader2 className="size-4 animate-spin" /> Loading branches…
+//           </div>
+//         )}
+//         {(branches ?? []).map((b) => (
+//           <Link
+//             key={b.id}
+//             to={`/branches/${b.id}`}
+//             className="flex items-center justify-between border rounded-md p-3 hover:bg-accent transition-colors"
+//           >
+//             <span className="text-sm font-medium">{b.name}</span>
+//             <ChevronRight className="size-4 text-muted-foreground" />
+//           </Link>
+//         ))}
+//         {branches?.length === 0 && (
+//           <p className="text-sm text-muted-foreground">No branches yet.</p>
+//         )}
+//       </CardContent>
+//     </Card>
+//   );
+// }
 
 /* ------------------------------------------------------------------
    Page
@@ -796,9 +796,9 @@ export default function SettingsPage() {
     { value: "profile", label: "Profile", show: true },
     { value: "company", label: "Company", show: canManage },
     { value: "calling", label: "Calling limits", show: canManage },
-    { value: "ai", label: "AI providers", show: canManage },
-    { value: "voices", label: "Voices", show: canVoices },
-    { value: "branches", label: "Branches", show: canBranches },
+    // { value: "ai", label: "AI providers", show: canManage },
+    // { value: "voices", label: "Voices", show: canVoices },
+    // { value: "branches", label: "Branches", show: canBranches },
   ].filter((t) => t.show);
 
   const workspaceBody = (render: (w: Workspace) => JSX.Element) =>
@@ -859,15 +859,15 @@ export default function SettingsPage() {
                       <CallingTab ws={w} onSaved={setWs} />
                     ))}
                   </TabsContent>
-                  <TabsContent value="ai">
+                  {/* <TabsContent value="ai">
                     {workspaceBody((w) => (
                       <AiTab ws={w} onSaved={setWs} />
                     ))}
-                  </TabsContent>
+                  </TabsContent> */}
                 </>
               )}
 
-              {canVoices && (
+              {/* {canVoices && (
                 <TabsContent value="voices">
                   <VoicesTab />
                 </TabsContent>
@@ -877,7 +877,7 @@ export default function SettingsPage() {
                 <TabsContent value="branches">
                   <BranchesTab />
                 </TabsContent>
-              )}
+              )} */}
             </div>
           </div>
         </Tabs>
