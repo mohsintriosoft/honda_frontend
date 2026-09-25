@@ -47,7 +47,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "./CommandPalette";
 import {
+  server_get_data,
   server_post_json,
+  get_nav_badges,
   logout_user_email,
   clearAuthSession,
   getStaffUser,
@@ -57,22 +59,32 @@ const nav = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/customers", label: "Customer 360", icon: Users },
   { to: "/segments", label: "Segments", icon: Layers },
-  { to: "/campaigns", label: "Campaigns", icon: Megaphone, badge: "4 live" },
+  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
   { to: "/agents", label: "AI Agents", icon: Bot },
   { to: "/agents/recordings", label: "Call Recordings", icon: AudioLines },
-  { to: "/intents", label: "Intents", icon: Target },   // NEW
-  { to: "/fillers", label: "Fillers", icon: MessageSquareText },   // NEW
-  { to: "/knowledge", label: "Knowledge Base", icon: BookOpen },   // NEW
+  { to: "/intents", label: "Intents", icon: Target }, // NEW
+  { to: "/fillers", label: "Fillers", icon: MessageSquareText }, // NEW
+  { to: "/knowledge", label: "Knowledge Base", icon: BookOpen }, // NEW
   { to: "/voice", label: "AI Voice Calls", icon: PhoneCall },
-  { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare, badge: "12" },
+  { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare },
   { to: "/appointments", label: "Appointments", icon: CalendarDays },
-  { to: "/visits", label: "Showroom Visits", icon: Store },   // NEW
-  { to: "/callbacks", label: "Callbacks", icon: PhoneForwarded },   // NEW
-  { to: "/branches", label: "Branches", icon: Building2 },   // NEW
-  { to: "/imports", label: "Data Import", icon: UploadCloud },   // NEW
+  { to: "/visits", label: "Showroom Visits", icon: Store }, // NEW
+  { to: "/callbacks", label: "Callbacks", icon: PhoneForwarded }, // NEW
+  { to: "/branches", label: "Branches", icon: Building2 }, // NEW
+  { to: "/imports", label: "Data Import", icon: UploadCloud }, // NEW
   { to: "/analytics", label: "Reports & Analytics", icon: BarChart3 },
   { to: "/health", label: "System Health", icon: HeartPulse },
 ] as const;
+
+// Sidebar badge text per route -- counts come from GET /api/nav-badges/.
+// Routes not listed here show a plain number.
+const BADGE_SUFFIX: Record<string, string> = {
+  "/campaigns": " live",
+  "/voice": " live",
+  "/imports": " ready",
+  "/visits": " ready",
+};
+const BADGE_POLL_MS = 60_000;
 
 const secondary = [
   { to: "/integrations", label: "Integrations", icon: Plug },
@@ -86,6 +98,33 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [badges, setBadges] = useState<Record<string, number>>({});
+
+  // Live counts for the sidebar: on load, on every page change (so a
+  // pause/resume or a processed import shows up right away), and once a
+  // minute while the tab is visible. A failed fetch keeps the last counts.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      if (document.hidden) return;
+      server_get_data(get_nav_badges)
+        .then((res) => {
+          if (!cancelled && res?.badges) setBadges(res.badges);
+        })
+        .catch(() => {});
+    };
+    load();
+    const timer = window.setInterval(load, BADGE_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [pathname]);
+
+  const badgeText = (to: string) => {
+    const n = badges[to];
+    return n ? `${n}${BADGE_SUFFIX[to] ?? ""}` : null;
+  };
 
   // Only the pages this user's role can open.
   const visibleNav = nav.filter((item) => canAccessPath(item.to));
@@ -108,7 +147,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       // Best-effort — logout_user_email doesn't exist on the backend yet.
       // The local session clear below is what actually logs the user out
       // of this client, so a failed/404 request here is not fatal.
-      await server_post_json(logout_user_email).catch(() => { });
+      await server_post_json(logout_user_email).catch(() => {});
     } finally {
       clearAuthSession();
       setSigningOut(false);
@@ -202,11 +241,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               <item.icon className="size-4" />
               <span className="flex-1">{item.label}</span>
-              {"badge" in item && item.badge ? (
+              {badgeText(item.to) && (
                 <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-medium">
-                  {item.badge}
+                  {badgeText(item.to)}
                 </Badge>
-              ) : null}
+              )}
             </Link>
           ))}
 
