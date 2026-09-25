@@ -211,6 +211,18 @@ const patch_profile = APL_LINK + "api/profile/update/";
 const post_change_password = APL_LINK + "api/profile/password/";
 const patch_settings_voice = (id) => APL_LINK + `api/settings/voices/${id}/`;
 
+const get_visit_batches = APL_LINK + "api/showroom-visits/batches/";
+const post_visit_upload = APL_LINK + "api/showroom-visits/batches/";
+const visit_batch_url = (id) => APL_LINK + `api/showroom-visits/batches/${id}/`;
+const post_visit_process = (id) => APL_LINK + `api/showroom-visits/batches/${id}/process/`;
+const get_visit_records = APL_LINK + "api/showroom-visits/records/";
+const visit_record_url = (id) => APL_LINK + `api/showroom-visits/records/${id}/`;
+const get_visit_summary = APL_LINK + "api/showroom-visits/summary/";
+const get_visit_mappings = APL_LINK + "api/showroom-visits/mappings/";
+const post_visit_mapping = APL_LINK + "api/showroom-visits/mappings/";
+const visit_mapping_url = (id) => APL_LINK + `api/showroom-visits/mappings/${id}/`;
+const post_visit_mappings_reapply = APL_LINK + "api/showroom-visits/mappings/reapply/";
+
 /* =========================================================
    COMMON CONFIG
 ========================================================= */
@@ -1022,4 +1034,15 @@ export {
   patch_profile,
   post_change_password,
   patch_settings_voice,
+  get_visit_batches,
+  post_visit_upload,
+  visit_batch_url,
+  post_visit_process,
+  visit_record_url,
+  get_visit_summary,
+  get_visit_mappings,
+  post_visit_mapping,
+  visit_mapping_url,
+  post_visit_mappings_reapply,
+  get_visit_records,
 };
