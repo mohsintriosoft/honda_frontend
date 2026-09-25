@@ -8,7 +8,7 @@ const NO_TOKEN_VALUES = ["0", "1", "", null, undefined];
 ========================================================= */
 
 let APL_LINK = "https://omhonda.triosoft.ai/";
-APL_LINK = "http://192.168.1.20:8000/";
+// APL_LINK = "http://192.168.1.20:8000/";
 // APL_LINK = "https://molecular-mama-riverside.ngrok-free.dev/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
