@@ -70,13 +70,19 @@ const RANGE_LABEL: Record<RangeKey, string> = {
 };
 const GLOBAL_VALUE = "all";
 
+interface BranchDayScheduleEntry {
+  weekday: number; // Python weekday(): 0=Mon…6=Sun
+  isOpen: boolean;
+  openingTime: string | null;
+  closingTime: string | null;
+}
+
 interface BranchOption {
   id: number;
   name: string;
   isActive?: boolean;
-  openingTime?: string;
-  closingTime?: string;
   slotDurationMinutes?: number;
+  weeklySchedule?: BranchDayScheduleEntry[];
 }
 
 interface AppointmentRow {
@@ -118,10 +124,9 @@ interface CalendarDay {
 interface CalendarBranchInfo {
   id: number;
   name: string;
-  openingTime: string;
-  closingTime: string;
   slotDurationMinutes: number;
   maxPerSlot: number;
+  weeklySchedule?: BranchDayScheduleEntry[];
 }
 
 /* =========================================================
@@ -180,33 +185,90 @@ function minutesToTime(total: number) {
 }
 
 /**
+ * Branch hours are per-weekday now (BranchDayTiming / weeklySchedule) —
+ * a branch can be open 9-6 on weekdays, 9-2 on Saturday, and closed
+ * Sunday, all on the same branch. These helpers read that schedule
+ * instead of a flat openingTime/closingTime the API no longer sends.
+ */
+function isoDateToWeekday(iso: string): number {
+  // JS Date#getDay(): 0=Sun…6=Sat. Backend's weekday(): 0=Mon…6=Sun.
+  const jsDay = new Date(`${iso}T00:00:00`).getDay();
+  return (jsDay + 6) % 7;
+}
+
+function scheduleEntryForDate(
+  schedule: BranchDayScheduleEntry[] | null | undefined,
+  dateIso: string,
+): BranchDayScheduleEntry | null {
+  if (!schedule) return null;
+  return schedule.find((d) => d.weekday === isoDateToWeekday(dateIso)) ?? null;
+}
+
+/** Widest open-to-close span across every open day in the week, for a
+ * calendar axis that has to cover several days (and thus several
+ * possibly-different weekday schedules) at once. */
+function scheduleEnvelope(schedule: BranchDayScheduleEntry[] | null | undefined): HoursRangeBounds | null {
+  if (!schedule) return null;
+  const openDays = schedule.filter((d) => d.isOpen && d.openingTime && d.closingTime);
+  if (openDays.length === 0) return null;
+  const openMin = Math.min(...openDays.map((d) => timeToMinutes(d.openingTime!)));
+  const closeMin = Math.max(...openDays.map((d) => timeToMinutes(d.closingTime!)));
+  if (closeMin <= openMin) return null;
+  return { openMin, closeMin };
+}
+
+interface HoursRangeBounds {
+  openMin: number;
+  closeMin: number;
+}
+
+/**
  * Slot-aligned time choices for a branch (e.g. 1:00 PM, 2:00 PM for an
  * hourly branch; 1:00 PM, 1:30 PM, 2:00 PM for a half-hour branch), so the
  * manual-slot / block-time pickers can't produce an off-grid time like
  * 12:04 or 2:36 PM that the calendar/booking grid was never built for.
+ *
+ * When `dateIso` is given, the options reflect that specific weekday's
+ * hours (a branch can be closed, or run different hours, on different
+ * days) — an empty result means the branch is closed that day. Without a
+ * date, options fall back to the widest span across the whole week.
  * `includeClosingBound` adds the closing time itself as a selectable
  * option, for a block range's "To" field.
  */
 function buildSlotTimeOptions(
-  branch: Pick<BranchOption, "openingTime" | "closingTime" | "slotDurationMinutes"> | null | undefined,
+  branch: Pick<BranchOption, "weeklySchedule" | "slotDurationMinutes"> | null | undefined,
+  dateIso?: string,
   includeClosingBound = false,
 ): string[] {
   const step =
     branch?.slotDurationMinutes && branch.slotDurationMinutes > 0
       ? branch.slotDurationMinutes
       : 60;
-  if (!branch?.openingTime || !branch?.closingTime) {
+
+  let bounds: HoursRangeBounds | null = null;
+  if (branch?.weeklySchedule && dateIso) {
+    const day = scheduleEntryForDate(branch.weeklySchedule, dateIso);
+    if (!day || !day.isOpen || !day.openingTime || !day.closingTime) {
+      return []; // branch is closed on this specific date
+    }
+    const openMin = timeToMinutes(day.openingTime);
+    const closeMin = timeToMinutes(day.closingTime);
+    if (closeMin > openMin) bounds = { openMin, closeMin };
+  } else if (branch?.weeklySchedule) {
+    bounds = scheduleEnvelope(branch.weeklySchedule);
+  }
+
+  if (!bounds) {
     return includeClosingBound
       ? [...DEFAULT_TIME_ROWS, minutesToTime(timeToMinutes(DEFAULT_TIME_ROWS.at(-1)!) + 60)]
       : DEFAULT_TIME_ROWS;
   }
-  const openMin = timeToMinutes(branch.openingTime);
-  const closeMin = timeToMinutes(branch.closingTime);
+
   const times: string[] = [];
-  for (let t = openMin; t < closeMin; t += step) {
+  for (let t = bounds.openMin; t < bounds.closeMin; t += step) {
     times.push(minutesToTime(t));
   }
-  if (includeClosingBound) times.push(minutesToTime(closeMin));
+  if (includeClosingBound) times.push(minutesToTime(bounds.closeMin));
   return times;
 }
 
@@ -296,15 +358,18 @@ function buildTimeRows(
 ): string[] {
   const set = new Set<string>();
 
-  if (!isGlobal && branchInfo?.openingTime && branchInfo?.closingTime) {
-    const openMin = timeToMinutes(branchInfo.openingTime);
-    const closeMin = timeToMinutes(branchInfo.closingTime);
-    const step =
-      branchInfo.slotDurationMinutes && branchInfo.slotDurationMinutes > 0
-        ? branchInfo.slotDurationMinutes
-        : 60;
-    for (let t = openMin; t < closeMin; t += step) {
-      set.add(minutesToTime(t));
+  if (!isGlobal && branchInfo?.weeklySchedule) {
+    const envelope = scheduleEnvelope(branchInfo.weeklySchedule);
+    if (envelope) {
+      const step =
+        branchInfo.slotDurationMinutes && branchInfo.slotDurationMinutes > 0
+          ? branchInfo.slotDurationMinutes
+          : 60;
+      for (let t = envelope.openMin; t < envelope.closeMin; t += step) {
+        set.add(minutesToTime(t));
+      }
+    } else {
+      DEFAULT_TIME_ROWS.forEach((t) => set.add(t));
     }
   } else if (isGlobal && globalHoursRange) {
     for (
@@ -456,16 +521,15 @@ export default function AppointmentsPage() {
   }, [branchId, start, rangeKey, isGlobal, reloadKey]);
 
   const globalHoursRange = useMemo<HoursRange | null>(() => {
-    const withHours = branches.filter(
-      (b): b is BranchOption & { openingTime: string; closingTime: string } =>
-        !!b.openingTime && !!b.closingTime,
-    );
-    if (withHours.length === 0) return null;
-    const openMin = Math.min(...withHours.map((b) => timeToMinutes(b.openingTime)));
-    const closeMin = Math.max(...withHours.map((b) => timeToMinutes(b.closingTime)));
+    const envelopes = branches
+      .map((b) => scheduleEnvelope(b.weeklySchedule))
+      .filter((e): e is HoursRangeBounds => e !== null);
+    if (envelopes.length === 0) return null;
+    const openMin = Math.min(...envelopes.map((e) => e.openMin));
+    const closeMin = Math.max(...envelopes.map((e) => e.closeMin));
     if (closeMin <= openMin) return null;
     const step = Math.min(
-      ...withHours.map((b) =>
+      ...branches.map((b) =>
         b.slotDurationMinutes && b.slotDurationMinutes > 0 ? b.slotDurationMinutes : 60,
       ),
     );
@@ -586,18 +650,21 @@ export default function AppointmentsPage() {
     [branches, manualSlotBranchId],
   );
   const manualSlotTimeOptions = useMemo(
-    () => buildSlotTimeOptions(manualSlotBranch),
-    [manualSlotBranch],
+    () => buildSlotTimeOptions(manualSlotBranch, manualSlotDate),
+    [manualSlotBranch, manualSlotDate],
   );
 
   const blockBranch = useMemo(
     () => branches.find((b) => b.id === blockBranchId) ?? null,
     [branches, blockBranchId],
   );
-  const blockStartOptions = useMemo(() => buildSlotTimeOptions(blockBranch), [blockBranch]);
+  const blockStartOptions = useMemo(
+    () => buildSlotTimeOptions(blockBranch, blockDate),
+    [blockBranch, blockDate],
+  );
   const blockEndOptions = useMemo(
-    () => buildSlotTimeOptions(blockBranch, true),
-    [blockBranch],
+    () => buildSlotTimeOptions(blockBranch, blockDate, true),
+    [blockBranch, blockDate],
   );
 
   const density: "normal" | "compact" | "ultra" =
@@ -1105,7 +1172,11 @@ export default function AppointmentsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="manual-slot-time">Time</Label>
-                <Select value={manualSlotTime || undefined} onValueChange={setManualSlotTime}>
+                <Select
+                  value={manualSlotTime || undefined}
+                  onValueChange={setManualSlotTime}
+                  disabled={manualSlotTimeOptions.length === 0}
+                >
                   <SelectTrigger id="manual-slot-time">
                     <SelectValue placeholder="Select time" />
                   </SelectTrigger>
@@ -1117,6 +1188,11 @@ export default function AppointmentsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+                {manualSlotBranch && manualSlotTimeOptions.length === 0 && (
+                  <p className="text-xs text-destructive">
+                    This branch is closed on the selected date.
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1178,7 +1254,11 @@ export default function AppointmentsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="block-start">From</Label>
-                <Select value={blockStart || undefined} onValueChange={setBlockStart}>
+                <Select
+                  value={blockStart || undefined}
+                  onValueChange={setBlockStart}
+                  disabled={blockStartOptions.length === 0}
+                >
                   <SelectTrigger id="block-start">
                     <SelectValue placeholder="Select time" />
                   </SelectTrigger>
@@ -1193,7 +1273,11 @@ export default function AppointmentsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="block-end">To</Label>
-                <Select value={blockEnd || undefined} onValueChange={setBlockEnd}>
+                <Select
+                  value={blockEnd || undefined}
+                  onValueChange={setBlockEnd}
+                  disabled={blockEndOptions.length === 0}
+                >
                   <SelectTrigger id="block-end">
                     <SelectValue placeholder="Select time" />
                   </SelectTrigger>
@@ -1207,6 +1291,11 @@ export default function AppointmentsPage() {
                 </Select>
               </div>
             </div>
+            {blockBranch && blockStartOptions.length === 0 && (
+              <p className="text-xs text-destructive -mt-2">
+                This branch is closed on the selected date.
+              </p>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="block-reason">Reason (optional)</Label>
               <Input

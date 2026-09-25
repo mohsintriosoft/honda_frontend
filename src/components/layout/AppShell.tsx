@@ -74,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           if (res?.badges) setBadges(res.badges);
           if (res?.workspace) setWorkspace(res.workspace);
         })
-        .catch(() => {});
+        .catch(() => { });
     };
     load();
     const timer = window.setInterval(load, BADGE_POLL_MS);
@@ -87,13 +87,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const canOpenBranches = canAccessPath("/branches");
   const workspaceSubtitle = workspace
     ? [
-        workspace.city,
-        workspace.my_branch
-          ? `${workspace.my_branch.name} branch`
-          : `${workspace.branch_count} ${workspace.branch_count === 1 ? "branch" : "branches"}`,
-      ]
-        .filter(Boolean)
-        .join(" • ")
+      workspace.city,
+      workspace.my_branch
+        ? `${workspace.my_branch.name} branch`
+        : `${workspace.branch_count} ${workspace.branch_count === 1 ? "branch" : "branches"}`,
+    ]
+      .filter(Boolean)
+      .join(" • ")
     : "";
 
   const badgeText = (to: string) => badgeLabel(badges, to);
@@ -316,30 +316,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             >
               {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
             </Button>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="relative">
-                  <Bell className="size-4" />
-                  <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-destructive" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-80">
-                <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem className="flex flex-col items-start gap-0.5">
-                  <div className="text-sm font-medium">9 escalations need review</div>
-                  <div className="text-xs text-muted-foreground">Win-back campaign • 5m ago</div>
-                </DropdownMenuItem>
-                <DropdownMenuItem className="flex flex-col items-start gap-0.5">
-                  <div className="text-sm font-medium">Free Service Nudge crossed 80 bookings</div>
-                  <div className="text-xs text-muted-foreground">21m ago</div>
-                </DropdownMenuItem>
-                <DropdownMenuItem className="flex flex-col items-start gap-0.5">
-                  <div className="text-sm font-medium">WhatsApp template approved</div>
-                  <div className="text-xs text-muted-foreground">amc_renewal_v1 • 1h ago</div>
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
