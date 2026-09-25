@@ -27,7 +27,7 @@ const retrieveData = (key) => {
 const removeData = (navigate) => {
   try {
     localStorage.clear();
-    handleLinkClick("/Sign-In");
+    handleLinkClick("/login");
   } catch (error) {
     //err
   }

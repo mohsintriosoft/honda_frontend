@@ -8,7 +8,7 @@ const NO_TOKEN_VALUES = ["0", "1", "", null, undefined];
 ========================================================= */
 
 let APL_LINK = "https://omhonda.triosoft.ai/";
-// APL_LINK = "http://192.168.1.20:8000/";
+APL_LINK = "http://192.168.1.20:8000/";
 // APL_LINK = "https://molecular-mama-riverside.ngrok-free.dev/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
@@ -266,7 +266,7 @@ const getStaffUser = () => {
 // token is what actually gates access on this client.
 //
 // Deliberately does NOT call LocalConnection's removeData() — that helper
-// always wipes ALL of localStorage and force-navigates to "/Sign-In"
+// always wipes ALL of localStorage and force-navigates to "/login"
 // outside React Router. We want the same "clear everything" behavior here
 // (so no stray customer_id/final_bus_id survives a sign-out either) but
 // the navigate("/login") is left to the caller, e.g. AppShell.handleSignOut.
@@ -866,13 +866,18 @@ apiClient.interceptors.response.use(
 
 function getListenWsUrl(sessionId) {
   const wsBase = APL_LINK.replace(/^http/i, "ws");
-  const token = encodeURIComponent(getAuthToken() ?? "");
+  const token = encodeURIComponent(getAccessToken() ?? "");
   return `${wsBase}api/voice/ws/listen/${sessionId}/?token=${token}`;
 }
 
+// 🔥 FIX: this used to build the ws URL with no ?token= at all, so
+// call_listener.py's _authorize() always saw an empty token and closed
+// with CLOSE_UNAUTHENTICATED (4401) -- surfaced on the frontend as
+// "Your session has expired", even with a perfectly valid session.
 function getListenWsUrl2(sessionId) {
   const wsBase = APL_LINK.replace(/^http/i, "ws");
-  return `${wsBase}api/voice/ws/listen/${sessionId}/`;
+  const token = encodeURIComponent(getAccessToken() ?? "");
+  return `${wsBase}api/voice/ws/listen/${sessionId}/?token=${token}`;
 }
 
 function getAudioUrl(session) {

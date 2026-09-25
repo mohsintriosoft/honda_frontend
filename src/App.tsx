@@ -37,7 +37,6 @@ import KnowledgeGlobal from "./routes/KnowledgeGlobal";
 import Segments from "./routes/Segments";
 import SegmentDetails from "./routes/SegmentDetails";
 import Voice from "./routes/Voice";
-import VoiceCall from "./routes/VoiceCall";
 import Health from "./routes/Health";
 import Callbacks from "./routes/Callbacks";
 import Login from "./routes/login";
@@ -218,7 +217,6 @@ export default function App() {
 
           {/* ================= VOICE ================= */}
           <Route path="/voice" element={<Voice />} />
-          <Route path="/voice/:callId" element={<VoiceCall />} />
 
           {/* ================= WHATSAPP ================= */}
           <Route path="/whatsapp" element={<WhatsApp />} />
