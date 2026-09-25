@@ -144,18 +144,18 @@ const get_campaign_batches = (campaignId) => `${APL_LINK}api/campaigns/${campaig
 
 // Intent Accuracy — kept as two endpoints on purpose: the index page only
 // ever calls get_intents (a cheap per-intent rollup), never get_intent_turns.
-// get_intent_turns is only hit once a card is opened (the /intents/:code page).
+// get_intent_turns is only hit once a card is opened (the /intents/:id page).
 const get_intents = APL_LINK + "api/intents/";
-const get_intent_summary = (code) => `${APL_LINK}api/intents/?code=${code}`;
-const get_intent_turns = (code) => `${APL_LINK}api/intents/${code}/turns/`;
+const get_intent_summary = (id) => `${APL_LINK}api/intents/?id=${id}`;
+const get_intent_turns = (id) => `${APL_LINK}api/intents/${id}/turns/`;
 
 // Fillers — separate page/section from Intent accuracy above. Index card
 // grid (state_count/filler_count per intent) + per-intent state/filler
 // detail (GET, and POST to add a new filler line), plus one-row PATCH/
 // DELETE for editing or removing a single filler.
 const get_intent_fillers_summary = APL_LINK + "api/intents/fillers/";
-const get_intent_fillers_detail = (code) => `${APL_LINK}api/intents/${code}/fillers/`;
-const post_intent_filler = (code) => `${APL_LINK}api/intents/${code}/fillers/`;
+const get_intent_fillers_detail = (id) => `${APL_LINK}api/intents/${id}/fillers/`;
+const post_intent_filler = (id) => `${APL_LINK}api/intents/${id}/fillers/`;
 const patch_filler = (id) => `${APL_LINK}api/fillers/${id}/`;
 const delete_filler = (id) => `${APL_LINK}api/fillers/${id}/`;
 

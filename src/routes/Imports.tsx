@@ -657,6 +657,8 @@ export default function Imports() {
                                         <TableHead>Type</TableHead>
                                         <TableHead className="text-right">Rows</TableHead>
                                         <TableHead className="text-right">Queued</TableHead>
+                                        <TableHead className="text-right">Skipped</TableHead>
+                                        <TableHead className="text-right">Failed</TableHead>
                                         <TableHead className="text-right">Unmatched</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead>Reconciliation</TableHead>
@@ -714,6 +716,18 @@ export default function Imports() {
                                                 </TableCell>
                                                 <TableCell className="text-right tabular-nums">
                                                     {num(row.segment_data_created).toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="text-right tabular-nums text-muted-foreground">
+                                                    {num(row.skipped_count).toLocaleString()}
+                                                </TableCell>
+                                                <TableCell className="text-right tabular-nums">
+                                                    {num(row.failed_count) > 0 ? (
+                                                        <span className="text-destructive">
+                                                            {num(row.failed_count).toLocaleString()}
+                                                        </span>
+                                                    ) : (
+                                                        "0"
+                                                    )}
                                                 </TableCell>
                                                 <TableCell className="text-right tabular-nums">
                                                     {unmatched > 0 ? (

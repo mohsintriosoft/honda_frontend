@@ -194,7 +194,7 @@ export default function App() {
 
           {/* ================= FILLERS ================= */}
           <Route path="/fillers" element={<Fillers />} />
-          <Route path="/fillers/:code" element={<FillerDetail />} />
+          <Route path="/fillers/:id" element={<FillerDetail />} />
 
           {/* ================= DATA IMPORT ================= */}
           <Route path="/imports" element={<Imports />} />
@@ -205,7 +205,7 @@ export default function App() {
 
           {/* ================= INTENTS ================= */}
           <Route path="/intents" element={<Intents />} />
-          <Route path="/intents/:code" element={<IntentDetails />} />
+          <Route path="/intents/:id" element={<IntentDetails />} />
 
           {/* ================= KNOWLEDGE ================= */}
           <Route path="/knowledge" element={<KnowledgeGlobal />} />

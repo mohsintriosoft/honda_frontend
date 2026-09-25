@@ -39,7 +39,7 @@ interface StateBlock {
 }
 
 interface IntentDetail {
-  intent: { code: string; label: string; description: string };
+  intent: { id: number; code: string; label: string; description: string };
   state_count: number;
   filler_count: number;
   states: StateBlock[];
@@ -60,11 +60,11 @@ function apiErrorMessage(err: any, fallback: string) {
 const MAX_EXAMPLES_PREVIEW = 2;
 
 function StateCard({
-  intentCode,
+  intentId,
   block,
   onChanged,
 }: {
-  intentCode: string;
+  intentId: number;
   block: StateBlock;
   onChanged: (state: string, fillers: FillerRow[]) => void;
 }) {
@@ -147,7 +147,7 @@ function StateCard({
     setError(null);
 
     try {
-      const data = await server_post_json(post_intent_filler(intentCode), {
+      const data = await server_post_json(post_intent_filler(intentId), {
         state: block.state,
         text,
       });
@@ -163,7 +163,7 @@ function StateCard({
     } finally {
       setAdding(false);
     }
-  }, [addingText, adding, intentCode, block.state, fillers, onChanged]);
+  }, [addingText, adding, intentId, block.state, fillers, onChanged]);
 
   return (
     <div className="rounded-lg border bg-card">
@@ -311,20 +311,20 @@ function StateCard({
 }
 
 export default function FillerDetail() {
-  const { code } = useParams<{ code: string }>();
+  const { id } = useParams<{ id: string }>();
   const [detail, setDetail] = useState<IntentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!code) return;
+    if (!id) return;
     let cancelled = false;
     setLoading(true);
     setNotFound(false);
     setLoadError(null);
 
-    server_get_data(get_intent_fillers_detail(code))
+    server_get_data(get_intent_fillers_detail(id))
       .then((data) => {
         if (cancelled) return;
         if (data?.success) setDetail(data);
@@ -345,7 +345,7 @@ export default function FillerDetail() {
     return () => {
       cancelled = true;
     };
-  }, [code]);
+  }, [id]);
 
   const handleStateChanged = useCallback((state: string, fillers: FillerRow[]) => {
     setDetail((prev) => {
@@ -362,7 +362,7 @@ export default function FillerDetail() {
         description={detail?.intent.description}
         breadcrumbs={[
           { label: "Fillers", to: "/fillers" },
-          { label: detail?.intent.label || code || "" },
+          { label: detail?.intent.label || id || "" },
         ]}
         actions={
           <Link to="/fillers">
@@ -396,7 +396,7 @@ export default function FillerDetail() {
             {detail.states.map((block) => (
               <StateCard
                 key={block.state}
-                intentCode={detail.intent.code}
+                intentId={detail.intent.id}
                 block={block}
                 onChanged={handleStateChanged}
               />

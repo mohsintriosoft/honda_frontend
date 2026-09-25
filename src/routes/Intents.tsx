@@ -23,6 +23,7 @@ import { formatNumber } from "@/lib/format";
 import { get_intents, server_get_data } from "@/components/ServiceConnection/serviceconnection";
 
 interface IntentRow {
+  id: number;
   code: string;
   label: string;
   description: string;
@@ -136,8 +137,8 @@ export default function IntentsPage() {
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {intents.map((intent) => (
               <Link
-                key={intent.code}
-                to={`/intents/${encodeURIComponent(intent.code)}`}
+                key={intent.id}
+                to={`/intents/${intent.id}`}
                 className="block"
               >
                 <Card className="h-full hover:shadow-md hover:border-primary/40 transition-all group">

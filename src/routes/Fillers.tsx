@@ -9,6 +9,7 @@ import {
 } from "@/components/ServiceConnection/serviceconnection";
 
 interface IntentCardData {
+  id: number;
   code: string;
   label: string;
   description: string;
@@ -114,9 +115,9 @@ export default function Fillers() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {intents.map((intent) => (
               <IntentCard
-                key={intent.code}
+                key={intent.id}
                 intent={intent}
-                onClick={() => navigate(`/fillers/${encodeURIComponent(intent.code)}`)}
+                onClick={() => navigate(`/fillers/${intent.id}`)}
               />
             ))}
           </div>
