@@ -223,6 +223,8 @@ const post_visit_mapping = APL_LINK + "api/showroom-visits/mappings/";
 const visit_mapping_url = (id) => APL_LINK + `api/showroom-visits/mappings/${id}/`;
 const post_visit_mappings_reapply = APL_LINK + "api/showroom-visits/mappings/reapply/";
 const get_nav_badges = APL_LINK + "api/nav-badges/";
+const get_global_search = APL_LINK + "api/search/";
+
 /* =========================================================
    COMMON CONFIG
 ========================================================= */
@@ -1051,4 +1053,5 @@ export {
   post_visit_mappings_reapply,
   get_visit_records,
   get_nav_badges,
+  get_global_search,
 };

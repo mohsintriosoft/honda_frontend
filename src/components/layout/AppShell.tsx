@@ -1,35 +1,12 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard,
-  Users,
-  Layers,
-  Megaphone,
-  PhoneCall,
-  PhoneForwarded,
-  MessageSquare,
-  MessageSquareText,
-  CalendarDays,
-  BarChart3,
-  Route,
-  Bot,
-  AudioLines,
-  ClipboardCheck,
-  Target,
-  BookOpen,
-  Plug,
-  Shield,
-  Settings,
   Search,
   Bell,
-  Sparkles,
   Building2,
   Sun,
   Moon,
   ChevronDown,
   Command,
-  UploadCloud,
-  HeartPulse,
-  Store,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -46,6 +23,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { CommandPalette } from "./CommandPalette";
+import { NAV_ITEMS, SECONDARY_NAV_ITEMS, badgeLabel } from "./navItems";
 import {
   server_get_data,
   server_post_json,
@@ -55,35 +33,8 @@ import {
   getStaffUser,
 } from "@/components/ServiceConnection/serviceconnection";
 
-const nav = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/customers", label: "Customer 360", icon: Users },
-  { to: "/segments", label: "Segments", icon: Layers },
-  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
-  { to: "/agents", label: "AI Agents", icon: Bot },
-  { to: "/agents/recordings", label: "Call Recordings", icon: AudioLines },
-  { to: "/intents", label: "Intents", icon: Target }, // NEW
-  { to: "/fillers", label: "Fillers", icon: MessageSquareText }, // NEW
-  { to: "/knowledge", label: "Knowledge Base", icon: BookOpen }, // NEW
-  { to: "/voice", label: "AI Voice Calls", icon: PhoneCall },
-  { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare },
-  { to: "/appointments", label: "Appointments", icon: CalendarDays },
-  { to: "/visits", label: "Showroom Visits", icon: Store }, // NEW
-  { to: "/callbacks", label: "Callbacks", icon: PhoneForwarded }, // NEW
-  { to: "/branches", label: "Branches", icon: Building2 }, // NEW
-  { to: "/imports", label: "Data Import", icon: UploadCloud }, // NEW
-  { to: "/analytics", label: "Reports & Analytics", icon: BarChart3 },
-  { to: "/health", label: "System Health", icon: HeartPulse },
-] as const;
-
-// Sidebar badge text per route -- counts come from GET /api/nav-badges/.
-// Routes not listed here show a plain number.
-const BADGE_SUFFIX: Record<string, string> = {
-  "/campaigns": " live",
-  "/voice": " live",
-  "/imports": " ready",
-  "/visits": " ready",
-};
+const nav = NAV_ITEMS;
+const secondary = SECONDARY_NAV_ITEMS;
 const BADGE_POLL_MS = 60_000;
 
 type Workspace = {
@@ -100,12 +51,6 @@ function workspaceInitials(name: string) {
   if (!words.length) return "—";
   return (words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0]).toUpperCase();
 }
-
-const secondary = [
-  { to: "/integrations", label: "Integrations", icon: Plug },
-  { to: "/users", label: "Users", icon: Shield },
-  { to: "/settings", label: "Settings", icon: Settings },
-] as const;
 
 export function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
@@ -151,10 +96,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         .join(" • ")
     : "";
 
-  const badgeText = (to: string) => {
-    const n = badges[to];
-    return n ? `${n}${BADGE_SUFFIX[to] ?? ""}` : null;
-  };
+  const badgeText = (to: string) => badgeLabel(badges, to);
 
   // Only the pages this user's role can open.
   const visibleNav = nav.filter((item) => canAccessPath(item.to));
@@ -177,7 +119,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       // Best-effort — logout_user_email doesn't exist on the backend yet.
       // The local session clear below is what actually logs the user out
       // of this client, so a failed/404 request here is not fatal.
-      await server_post_json(logout_user_email).catch(() => {});
+      await server_post_json(logout_user_email).catch(() => { });
     } finally {
       clearAuthSession();
       setSigningOut(false);
@@ -364,7 +306,8 @@ export function AppShell({ children }: { children: ReactNode }) {
             </kbd>
           </button>
 
-          <div className="flex items-center gap-1">
+          {/* ml-auto pushes theme / bell / profile to the far right */}
+          <div className="ml-auto flex items-center gap-1">
             <Button
               variant="ghost"
               size="icon"
@@ -425,7 +368,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <main className="flex-1 min-w-0">{children}</main>
       </div>
 
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} badges={badges} />
     </div>
   );
 }
