@@ -94,7 +94,7 @@ export interface LLMSetting {
 
   voice: TTSVoice | null;
 
-  tone: number;
+  tone: string;
   pace: number;
   barge_in_threshold: number;
   max_turns: number;
@@ -118,6 +118,14 @@ export interface AgentKnowledgeDocument {
 }
 
 type SegmentLineField = "opening_line" | "closing_line";
+
+// 🔥 Matches backend TONE_CHOICES (models.py). Keep in sync if a style
+// is added/removed there — this is a static list, not fetched.
+const TONE_OPTIONS: { value: string; label: string }[] = [
+  { value: "formal", label: "Formal — businesslike, minimal small talk" },
+  { value: "friendly", label: "Friendly — warm and informal" },
+  { value: "empathetic", label: "Empathetic — soft, patient, reassuring" },
+];
 
 const isForbidden = (error: any) => error?.response?.status === 403;
 
@@ -200,9 +208,9 @@ export default function AgentDetail() {
     setSetting((prev) =>
       prev
         ? {
-            ...prev,
-            segments: prev.segments.map((s) => (s.id === segId ? { ...s, [field]: value } : s)),
-          }
+          ...prev,
+          segments: prev.segments.map((s) => (s.id === segId ? { ...s, [field]: value } : s)),
+        }
         : prev,
     );
   };
@@ -275,7 +283,7 @@ function AgentDetailContent({
   const [personaName, setPersonaName] = useState(setting.persona_name);
   const [voiceId, setVoiceId] = useState<number>(setting.voice?.id ?? voices[0]?.id ?? 0);
   const [systemPrompt, setSystemPrompt] = useState(setting.system_prompt);
-  const [tone, setTone] = useState(setting.tone);
+  const [tone, setTone] = useState<string>(setting.tone ?? "friendly");
   const [pace, setPace] = useState(setting.pace);
   const [maxTurns, setMaxTurns] = useState(setting.max_turns);
   const [allowInterrupt, setAllowInterrupt] = useState(setting.allow_customer_barge_in);
@@ -519,8 +527,22 @@ function AgentDetailContent({
                 <div className="space-y-6">
                   <h3 className="text-base font-semibold">Behaviour</h3>
 
+                  <div className="space-y-1.5">
+                    <Label>Tone</Label>
+                    <select
+                      className="w-full h-9 rounded-md border px-3 text-sm bg-background"
+                      value={tone}
+                      onChange={(event) => setTone(event.target.value)}
+                    >
+                      {TONE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
                   {[
-                    { label: "Tone (formal → friendly)", value: tone, setValue: setTone },
                     { label: "Pace (slow → fast)", value: pace, setValue: setPace },
                   ].map((item) => (
                     <div key={item.label} className="space-y-2">

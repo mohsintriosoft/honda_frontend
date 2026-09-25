@@ -216,7 +216,7 @@ export default function CustomerDetailPage() {
 
   return (
     <>
-      <PageHeader
+      {/* <PageHeader
         title={c.name}
         breadcrumbs={[{ label: "Customer 360", to: "/customers" }, { label: c.name }]}
         actions={
@@ -234,7 +234,7 @@ export default function CustomerDetailPage() {
             </Button>
           </>
         }
-      />
+      /> */}
 
       <div className="p-4 md:p-6 lg:p-8 grid gap-6 lg:grid-cols-[320px_1fr]">
         {/* Identity rail */}

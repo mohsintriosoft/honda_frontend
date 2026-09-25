@@ -179,6 +179,37 @@ function minutesToTime(total: number) {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
+/**
+ * Slot-aligned time choices for a branch (e.g. 1:00 PM, 2:00 PM for an
+ * hourly branch; 1:00 PM, 1:30 PM, 2:00 PM for a half-hour branch), so the
+ * manual-slot / block-time pickers can't produce an off-grid time like
+ * 12:04 or 2:36 PM that the calendar/booking grid was never built for.
+ * `includeClosingBound` adds the closing time itself as a selectable
+ * option, for a block range's "To" field.
+ */
+function buildSlotTimeOptions(
+  branch: Pick<BranchOption, "openingTime" | "closingTime" | "slotDurationMinutes"> | null | undefined,
+  includeClosingBound = false,
+): string[] {
+  const step =
+    branch?.slotDurationMinutes && branch.slotDurationMinutes > 0
+      ? branch.slotDurationMinutes
+      : 60;
+  if (!branch?.openingTime || !branch?.closingTime) {
+    return includeClosingBound
+      ? [...DEFAULT_TIME_ROWS, minutesToTime(timeToMinutes(DEFAULT_TIME_ROWS.at(-1)!) + 60)]
+      : DEFAULT_TIME_ROWS;
+  }
+  const openMin = timeToMinutes(branch.openingTime);
+  const closeMin = timeToMinutes(branch.closingTime);
+  const times: string[] = [];
+  for (let t = openMin; t < closeMin; t += step) {
+    times.push(minutesToTime(t));
+  }
+  if (includeClosingBound) times.push(minutesToTime(closeMin));
+  return times;
+}
+
 function displayDate(iso: string) {
   return new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
     day: "numeric",
@@ -445,6 +476,19 @@ export default function AppointmentsPage() {
     () => buildTimeRows(days, appointments, branchInfo, isGlobal, globalHoursRange),
     [days, appointments, branchInfo, isGlobal, globalHoursRange],
   );
+
+  // Below-calendar list: just today's appointments on the "Today" range,
+  // otherwise every appointment in the currently selected window
+  // (the `appointments` array is already scoped to [start, end] by the fetch above).
+  const rangeListAppointments = useMemo(() => {
+    const base =
+      rangeKey === "day" ? appointments.filter((a) => a.slotDate === selectedDate) : appointments;
+    return [...base].sort((a, b) => {
+      if (a.slotDate !== b.slotDate) return a.slotDate < b.slotDate ? -1 : 1;
+      return timeToMinutes(a.slotTime) - timeToMinutes(b.slotTime);
+    });
+  }, [appointments, rangeKey, selectedDate]);
+
   const upcoming = appointments.filter((a) => a.status === "confirmed").length;
   const completed = appointments.filter((a) => a.status === "completed").length;
   const missed = appointments.filter((a) => a.status === "missed").length;
@@ -475,7 +519,7 @@ export default function AppointmentsPage() {
       if (!res?.success) {
         setError(
           API_ERROR_TEXT[res?.error] ??
-            `Couldn't create the slot (${res?.error ?? "unknown error"}).`,
+          `Couldn't create the slot (${res?.error ?? "unknown error"}).`,
         );
         return;
       }
@@ -537,7 +581,24 @@ export default function AppointmentsPage() {
     }
   }
 
-  const slotStep = branchInfo ? branchInfo.slotDurationMinutes * 60 : 1800;
+  const manualSlotBranch = useMemo(
+    () => branches.find((b) => b.id === manualSlotBranchId) ?? null,
+    [branches, manualSlotBranchId],
+  );
+  const manualSlotTimeOptions = useMemo(
+    () => buildSlotTimeOptions(manualSlotBranch),
+    [manualSlotBranch],
+  );
+
+  const blockBranch = useMemo(
+    () => branches.find((b) => b.id === blockBranchId) ?? null,
+    [branches, blockBranchId],
+  );
+  const blockStartOptions = useMemo(() => buildSlotTimeOptions(blockBranch), [blockBranch]);
+  const blockEndOptions = useMemo(
+    () => buildSlotTimeOptions(blockBranch, true),
+    [blockBranch],
+  );
 
   const density: "normal" | "compact" | "ultra" =
     rangeKey === "month" ? "ultra" : rangeKey === "15day" ? "compact" : "normal";
@@ -560,14 +621,19 @@ export default function AppointmentsPage() {
 
   /* ---------- one cell of the time-grid ---------- */
   function renderGridCell(day: CalendarDay, time: string) {
+    const cellKey = `${day.date}-${time}`;
     const closedDay = !isGlobal && (day.isHoliday || day.isWeeklyOff);
     if (closedDay) {
-      return <div key={time} className={`border-b border-r bg-muted/60 ${cellMinHeightClass}`} />;
+      return (
+        <div key={cellKey} className={`border-b border-r bg-muted/60 ${cellMinHeightClass}`} />
+      );
     }
 
     const slot = !isGlobal ? day.slots.find((s) => s.time === time) : undefined;
     if (!isGlobal && !slot) {
-      return <div key={time} className={`border-b border-r bg-muted/10 ${cellMinHeightClass}`} />;
+      return (
+        <div key={cellKey} className={`border-b border-r bg-muted/10 ${cellMinHeightClass}`} />
+      );
     }
 
     const cellAppts: AppointmentRow[] = isGlobal
@@ -593,7 +659,7 @@ export default function AppointmentsPage() {
 
     return (
       <div
-        key={time}
+        key={cellKey}
         role={hasAppts ? "button" : undefined}
         tabIndex={hasAppts ? 0 : undefined}
         onClick={
@@ -602,11 +668,11 @@ export default function AppointmentsPage() {
         onKeyDown={
           hasAppts
             ? (e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setSlotDetail({ date: day.date, time, appts: cellAppts });
-                }
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setSlotDetail({ date: day.date, time, appts: cellAppts });
               }
+            }
             : undefined
         }
         aria-label={hasAppts ? `Show all ${cellAppts.length} appointments` : undefined}
@@ -618,16 +684,16 @@ export default function AppointmentsPage() {
           >
             <span className="truncate">{block.reason || "Blocked"}</span>
             {canManage && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                removeBlock(block.id);
-              }}
-              aria-label="Remove block"
-              className="shrink-0 hover:text-amber-900"
-            >
-              <X className="size-2.5" />
-            </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeBlock(block.id);
+                }}
+                aria-label="Remove block"
+                className="shrink-0 hover:text-amber-900"
+              >
+                <X className="size-2.5" />
+              </button>
             )}
           </div>
         )}
@@ -709,21 +775,21 @@ export default function AppointmentsPage() {
         description="Workshop bookings — auto-created by AI calls and WhatsApp confirmations."
         actions={
           canManage && (
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => openBlock()}
-              disabled={branchId === null}
-            >
-              <Ban className="size-4" />
-              Block time
-            </Button>
-            <Button size="sm" onClick={() => openManualSlot()} disabled={branchId === null}>
-              <Plus className="size-4" />
-              Manual slot
-            </Button>
-          </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => openBlock()}
+                disabled={branchId === null}
+              >
+                <Ban className="size-4" />
+                Block time
+              </Button>
+              <Button size="sm" onClick={() => openManualSlot()} disabled={branchId === null}>
+                <Plus className="size-4" />
+                Manual slot
+              </Button>
+            </div>
           )
         }
       />
@@ -850,9 +916,8 @@ export default function AppointmentsPage() {
                             key={day.date}
                             type="button"
                             onClick={() => setSelectedDate(day.date)}
-                            className={`sticky top-0 z-20 bg-background border-b border-r text-center ${headerPaddingClass} ${
-                              isToday ? "bg-primary/5" : ""
-                            } ${closed ? "bg-muted/60" : ""} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
+                            className={`sticky top-0 z-20 bg-background border-b border-r text-center ${headerPaddingClass} ${isToday ? "bg-primary/5" : ""
+                              } ${closed ? "bg-muted/60" : ""} ${isSelected ? "ring-2 ring-inset ring-primary" : ""}`}
                           >
                             <div className={`${headerWeekdayClass} text-muted-foreground`}>
                               {day.weekday}
@@ -890,44 +955,48 @@ export default function AppointmentsPage() {
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between mb-3">
                     <h3 className="text-sm font-semibold">
-                      {selectedDate
-                        ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
+                      {rangeKey === "day"
+                        ? selectedDate
+                          ? new Date(`${selectedDate}T00:00:00`).toLocaleDateString(undefined, {
                             weekday: "long",
                             day: "numeric",
                             month: "long",
                           })
-                        : "—"}
+                          : "—"
+                        : `${displayDate(start)} – ${displayDate(end)}`}
                     </h3>
                   </div>
 
-                  {appointments.filter((a) => a.slotDate === selectedDate).length === 0 ? (
+                  {rangeListAppointments.length === 0 ? (
                     <p className="text-sm text-muted-foreground py-6 text-center">
-                      No appointments this day.
+                      No appointments {rangeKey === "day" ? "this day" : "in this window"}.
                     </p>
                   ) : (
                     <div className="space-y-1.5">
-                      {appointments
-                        .filter((a) => a.slotDate === selectedDate)
-                        .sort((a, b) => timeToMinutes(a.slotTime) - timeToMinutes(b.slotTime))
-                        .map((a) => (
-                          <div
-                            key={a.id}
-                            className="flex items-center gap-3 rounded-md border px-3 py-2"
-                          >
-                            <span className="text-sm font-medium w-20 shrink-0">
-                              {displayTime(a.slotTime)}
+                      {rangeListAppointments.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex items-center gap-3 rounded-md border px-3 py-2"
+                        >
+                          {rangeKey !== "day" && (
+                            <span className="text-xs text-muted-foreground w-16 shrink-0">
+                              {displayDate(a.slotDate)}
                             </span>
-                            <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">
-                              {a.branchName ?? "—"}
-                            </span>
-                            <span className="flex-1 text-sm truncate">
-                              {apptDisplayName(a, false)}
-                              {!a.isManualHold ? ` · ${a.type}` : ""}
-                              {a.bay ? ` • Bay ${a.bay}` : ""}
-                            </span>
-                            <StatusBadge status={toBadgeStatus(a.status) as any} />
-                          </div>
-                        ))}
+                          )}
+                          <span className="text-sm font-medium w-20 shrink-0">
+                            {displayTime(a.slotTime)}
+                          </span>
+                          <span className="text-xs text-muted-foreground w-28 shrink-0 truncate">
+                            {a.branchName ?? "—"}
+                          </span>
+                          <span className="flex-1 text-sm truncate">
+                            {apptDisplayName(a, false)}
+                            {!a.isManualHold ? ` · ${a.type}` : ""}
+                            {a.bay ? ` • Bay ${a.bay}` : ""}
+                          </span>
+                          <StatusBadge status={toBadgeStatus(a.status) as any} />
+                        </div>
+                      ))}
                     </div>
                   )}
                 </CardContent>
@@ -1036,13 +1105,18 @@ export default function AppointmentsPage() {
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="manual-slot-time">Time</Label>
-                <Input
-                  id="manual-slot-time"
-                  type="time"
-                  step={slotStep}
-                  value={manualSlotTime}
-                  onChange={(e) => setManualSlotTime(e.target.value)}
-                />
+                <Select value={manualSlotTime || undefined} onValueChange={setManualSlotTime}>
+                  <SelectTrigger id="manual-slot-time">
+                    <SelectValue placeholder="Select time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {manualSlotTimeOptions.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {displayTime(t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </div>
@@ -1104,23 +1178,33 @@ export default function AppointmentsPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label htmlFor="block-start">From</Label>
-                <Input
-                  id="block-start"
-                  type="time"
-                  step={slotStep}
-                  value={blockStart}
-                  onChange={(e) => setBlockStart(e.target.value)}
-                />
+                <Select value={blockStart || undefined} onValueChange={setBlockStart}>
+                  <SelectTrigger id="block-start">
+                    <SelectValue placeholder="Select time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {blockStartOptions.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {displayTime(t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="block-end">To</Label>
-                <Input
-                  id="block-end"
-                  type="time"
-                  step={slotStep}
-                  value={blockEnd}
-                  onChange={(e) => setBlockEnd(e.target.value)}
-                />
+                <Select value={blockEnd || undefined} onValueChange={setBlockEnd}>
+                  <SelectTrigger id="block-end">
+                    <SelectValue placeholder="Select time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {blockEndOptions.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {displayTime(t)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <div className="space-y-1.5">
