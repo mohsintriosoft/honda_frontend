@@ -86,6 +86,21 @@ const BADGE_SUFFIX: Record<string, string> = {
 };
 const BADGE_POLL_MS = 60_000;
 
+type Workspace = {
+  name: string;
+  code: string;
+  city: string;
+  branch_count: number;
+  branches: { id: number; name: string; city: string; is_main_branch: boolean }[];
+  my_branch: { id: number; name: string } | null;
+};
+
+function workspaceInitials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (!words.length) return "—";
+  return (words.length === 1 ? words[0].slice(0, 2) : words[0][0] + words[1][0]).toUpperCase();
+}
+
 const secondary = [
   { to: "/integrations", label: "Integrations", icon: Plug },
   { to: "/users", label: "Users", icon: Shield },
@@ -99,6 +114,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [badges, setBadges] = useState<Record<string, number>>({});
+  const [workspace, setWorkspace] = useState<Workspace | null>(null);
 
   // Live counts for the sidebar: on load, on every page change (so a
   // pause/resume or a processed import shows up right away), and once a
@@ -109,7 +125,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       if (document.hidden) return;
       server_get_data(get_nav_badges)
         .then((res) => {
-          if (!cancelled && res?.badges) setBadges(res.badges);
+          if (cancelled) return;
+          if (res?.badges) setBadges(res.badges);
+          if (res?.workspace) setWorkspace(res.workspace);
         })
         .catch(() => {});
     };
@@ -120,6 +138,18 @@ export function AppShell({ children }: { children: ReactNode }) {
       window.clearInterval(timer);
     };
   }, [pathname]);
+
+  const canOpenBranches = canAccessPath("/branches");
+  const workspaceSubtitle = workspace
+    ? [
+        workspace.city,
+        workspace.my_branch
+          ? `${workspace.my_branch.name} branch`
+          : `${workspace.branch_count} ${workspace.branch_count === 1 ? "branch" : "branches"}`,
+      ]
+        .filter(Boolean)
+        .join(" • ")
+    : "";
 
   const badgeText = (to: string) => {
     const n = badges[to];
@@ -196,34 +226,81 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
 
-        {/* Workspace switcher */}
+        {/* Workspace (dealer) -- from GET /api/nav-badges/ */}
         <div className="p-3 border-b">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="w-full flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-left hover:bg-accent transition-colors">
+              <button
+                className="w-full flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-left hover:bg-accent transition-colors"
+                disabled={!workspace}
+              >
                 <div className="size-7 rounded bg-foreground/90 text-background grid place-items-center text-xs font-bold">
-                  OH
+                  {workspace ? workspaceInitials(workspace.name) : ""}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">Om Honda</div>
-                  <div className="text-[11px] text-muted-foreground truncate">
-                    Bhopal • 3 branches
-                  </div>
+                  {workspace ? (
+                    <>
+                      <div className="text-sm font-medium truncate">{workspace.name}</div>
+                      <div className="text-[11px] text-muted-foreground truncate">
+                        {workspaceSubtitle}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="space-y-1.5" aria-label="Loading workspace">
+                      <div className="h-3 w-24 rounded bg-muted animate-pulse" />
+                      <div className="h-2.5 w-16 rounded bg-muted animate-pulse" />
+                    </div>
+                  )}
                 </div>
                 <ChevronDown className="size-4 text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-56" align="start">
-              <DropdownMenuLabel>Workspaces</DropdownMenuLabel>
-              <DropdownMenuItem>
-                <Building2 className="mr-2 size-4" /> Om Honda — Bhopal
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled>
-                <Building2 className="mr-2 size-4 opacity-60" /> Demo Dealer (preview)
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem>+ Add workspace</DropdownMenuItem>
-            </DropdownMenuContent>
+            {workspace && (
+              <DropdownMenuContent className="w-60" align="start">
+                <DropdownMenuLabel className="flex items-center justify-between gap-2">
+                  <span className="truncate">{workspace.name}</span>
+                  {workspace.code && (
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      {workspace.code}
+                    </span>
+                  )}
+                </DropdownMenuLabel>
+                {workspace.my_branch && (
+                  <div className="px-2 pb-1.5 text-xs text-muted-foreground">
+                    You work at {workspace.my_branch.name}
+                  </div>
+                )}
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-normal">
+                  Branches
+                </DropdownMenuLabel>
+                {workspace.branches.length === 0 ? (
+                  <DropdownMenuItem disabled>No active branches</DropdownMenuItem>
+                ) : (
+                  workspace.branches.map((b) => (
+                    <DropdownMenuItem
+                      key={b.id}
+                      disabled={!canOpenBranches}
+                      onClick={() => navigate(`/branches/${b.id}`)}
+                    >
+                      <Building2 className="mr-2 size-4" />
+                      <span className="flex-1 truncate">{b.name}</span>
+                      {b.is_main_branch && (
+                        <span className="ml-2 text-[10px] text-muted-foreground">Main</span>
+                      )}
+                    </DropdownMenuItem>
+                  ))
+                )}
+                {canOpenBranches && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate("/branches")}>
+                      Manage branches
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            )}
           </DropdownMenu>
         </div>
 
