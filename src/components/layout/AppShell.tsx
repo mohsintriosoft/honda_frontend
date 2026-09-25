@@ -29,9 +29,11 @@ import {
   Command,
   UploadCloud,
   HeartPulse,
+  Store,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { canAccessPath } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -64,6 +66,7 @@ const nav = [
   { to: "/voice", label: "AI Voice Calls", icon: PhoneCall },
   { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare, badge: "12" },
   { to: "/appointments", label: "Appointments", icon: CalendarDays },
+  { to: "/visits", label: "Showroom Visits", icon: Store },   // NEW
   { to: "/callbacks", label: "Callbacks", icon: PhoneForwarded },   // NEW
   { to: "/branches", label: "Branches", icon: Building2 },   // NEW
   { to: "/imports", label: "Data Import", icon: UploadCloud },   // NEW
@@ -83,6 +86,10 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [dark, setDark] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+
+  // Only the pages this user's role can open.
+  const visibleNav = nav.filter((item) => canAccessPath(item.to));
+  const visibleSecondary = secondary.filter((item) => canAccessPath(item.to));
 
   // Falls back to the placeholder identity below until the login page is
   // wired up to actually populate "staff_user" via setAuthSession().
@@ -182,7 +189,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {nav.map((item) => (
+          {visibleNav.map((item) => (
             <Link
               key={item.to}
               to={item.to}
@@ -203,10 +210,12 @@ export function AppShell({ children }: { children: ReactNode }) {
             </Link>
           ))}
 
-          <div className="pt-4 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-            Workspace
-          </div>
-          {secondary.map((item) => (
+          {visibleSecondary.length > 0 && (
+            <div className="pt-4 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+              Workspace
+            </div>
+          )}
+          {visibleSecondary.map((item) => (
             <Link
               key={item.to}
               to={item.to}

@@ -15,7 +15,7 @@ import {
 } from "@/components/ServiceConnection/serviceconnection";
 import { AuthProvider } from "@/context/AuthContext";
 import { canAccessPath, getPermissions, hasPerm, landingPath } from "@/lib/permissions";
-import OmHondaChunks from "./routes/omhondachunks";
+
 import Home from "./routes/index";
 import Agents from "./routes/Agents";
 import AgentDetails from "./routes/AgentDetails";
@@ -41,10 +41,12 @@ import Health from "./routes/Health";
 import Callbacks from "./routes/Callbacks";
 import Login from "./routes/login";
 import Dashboard from "./routes/Dashboard";
-import Users from "./routes/Users";
+import ShowroomVisits from "./routes/ShowroomVisits";
 import Settings from "./routes/Settings";
+import Users from "./routes/Users";
 
 
+import OmHondaChunks from "./routes/omhondachunks";
 import WhatsApp from "./routes/_app.whatsapp.index";
 import Integrations from "./routes/_app.integrations.index";
 import Analytics from "./routes/_app.analytics.index";
@@ -171,6 +173,9 @@ export default function App() {
 
           {/* ================= APPOINTMENTS ================= */}
           <Route path="/appointments" element={<Appointments />} />
+
+          {/* ================= SHOWROOM VISITS ================= */}
+          <Route path="/visits" element={<ShowroomVisits />} />
 
           {/* ================= CALLBACKS ================= */}
           <Route path="/callbacks" element={<Callbacks />} />

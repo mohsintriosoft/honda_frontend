@@ -51,6 +51,7 @@ const ROUTE_PERMS: Record<string, PermCode[] | null> = {
   "/voice": ["calls.view", "calls.place"],
   "/whatsapp": null,
   "/appointments": ["appointments.manage", "dashboard.view"],
+  "/visits": ["dashboard.view", "imports.manage"],
   "/callbacks": ["callbacks.manage"],
   "/branches": ["branches.manage", "appointments.manage"],
   "/imports": ["imports.manage"],
