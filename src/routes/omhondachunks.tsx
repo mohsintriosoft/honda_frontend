@@ -284,7 +284,13 @@ export default function OmHondaChunks() {
     setStatus("connecting");
 
     const phone = callId && callId !== "demo" ? callId : "";
-    const url = phone ? `${WS_URL}?phone=${encodeURIComponent(phone)}` : WS_URL;
+    // The server now requires the dashboard login token on this socket.
+    const params = new URLSearchParams();
+    const token = localStorage.getItem("access_token");
+    if (token) params.set("token", token);
+    if (phone) params.set("phone", phone);
+    const qs = params.toString();
+    const url = qs ? `${WS_URL}?${qs}` : WS_URL;
 
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -297,7 +303,9 @@ export default function OmHondaChunks() {
       console.error("[WS] error:", e);
       setError("Connection to the voice server failed.");
     };
-    ws.onclose = () => {
+    ws.onclose = (ev) => {
+      if (ev.code === 4401) setError("Your session has expired — sign in again to place a test call.");
+      else if (ev.code === 4403) setError("Your role doesn't have the right to place calls.");
       if (!closedRef.current) setStatus("ended");
     };
 

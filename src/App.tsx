@@ -44,12 +44,12 @@ import Dashboard from "./routes/Dashboard";
 import ShowroomVisits from "./routes/ShowroomVisits";
 import Settings from "./routes/Settings";
 import Users from "./routes/Users";
-
-
+import Analytics from "./routes/Analytics";
 import OmHondaChunks from "./routes/omhondachunks";
+
+
 import WhatsApp from "./routes/_app.whatsapp.index";
 import Integrations from "./routes/_app.integrations.index";
-import Analytics from "./routes/_app.analytics.index";
 
 function AppLayout({ forbidden = false }: { forbidden?: boolean }) {
   return (
