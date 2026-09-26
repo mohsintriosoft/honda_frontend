@@ -32,12 +32,16 @@ type HealthCardData = {
     provider: string;
     level: string;
     error: string | null;
+    // Only sent for staff on the backend's HEALTH_BALANCE_STAFF_IDS list.
+    balance?: number | null;
+    unit?: string;
 };
 
 type HealthResponse = {
     success: boolean;
     checked_at: string;
     cards: HealthCardData[];
+    show_balance?: boolean;
 };
 
 const POLL_MS = 60_000;
@@ -126,11 +130,21 @@ function timeAgo(iso: string | undefined, now: number): string {
     return `${Math.round(mins / 60)}h ago`;
 }
 
+function formatBalance(balance: number, unit?: string): string {
+    if ((unit || "").toUpperCase() === "USD") {
+        return `$${balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    if ((unit || "").toUpperCase() === "INR") {
+        return `₹${balance.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+    }
+    return `${balance.toLocaleString("en-IN", { maximumFractionDigits: 2 })} ${unit || "credits"}`;
+}
+
 /* ------------------------------------------------------------------
    Card
 ------------------------------------------------------------------ */
 
-function HealthCard({ card }: { card: HealthCardData }) {
+function HealthCard({ card, showBalance }: { card: HealthCardData; showBalance: boolean }) {
     const lv = levelOf(card.level);
     const Icon = CARD_ICONS[card.key] ?? Server;
     const StatusIcon = lv.icon;
@@ -163,7 +177,18 @@ function HealthCard({ card }: { card: HealthCardData }) {
                 </span>
             </header>
 
-            <p className="text-xs text-muted-foreground">Status on {card.label}</p>
+            {showBalance ? (
+                <div>
+                    <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                        Balance · {card.provider}
+                    </div>
+                    <div className="mt-0.5 text-2xl font-semibold font-display tabular-nums">
+                        {card.balance != null ? formatBalance(card.balance, card.unit) : "—"}
+                    </div>
+                </div>
+            ) : (
+                <p className="text-xs text-muted-foreground">Status on {card.label}</p>
+            )}
 
             {message && (
                 <p
@@ -295,7 +320,9 @@ export default function Health() {
 
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                     {data
-                        ? data.cards.map((card) => <HealthCard key={card.key} card={card} />)
+                        ? data.cards.map((card) => (
+                              <HealthCard key={card.key} card={card} showBalance={!!data.show_balance} />
+                          ))
                         : !loadError && [0, 1, 2, 3].map((i) => <CardSkeleton key={i} />)}
                 </div>
             </div>
