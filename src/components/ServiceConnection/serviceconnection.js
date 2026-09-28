@@ -8,7 +8,7 @@ const NO_TOKEN_VALUES = ["0", "1", "", null, undefined];
 ========================================================= */
 
 let APL_LINK = "https://omhonda.triosoft.ai/";
-// APL_LINK = "http://192.168.1.20:8000/";
+// APL_LINK = "http://192.168.122.1:8000/";
 // APL_LINK = "https://molecular-mama-riverside.ngrok-free.dev/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
@@ -68,13 +68,7 @@ const get_agent_knowledge = (agentId) => `${APL_LINK}api/agents/${agentId}/knowl
 const get_recordings = APL_LINK + "api/recordings/";
 const get_recording_detail = (id) => `${APL_LINK}api/recordings/${id}/`;
 const patch_recording = (id) => `${APL_LINK}api/recordings/${id}/`;
-// 🔥 NEW — Voice index page (Live tab). Reuses api/recordings/ (same
-// CallSession rows the Completed tab reads) with a comma-separated
-// status filter (backend change in views_admin.recordings), so "still on
-// the phone" calls (initiated/ringing/ongoing) come back in one poll
-// instead of one request per status. Pass to get_recordings via
-// server_get_data(get_recordings, { status: LIVE_CALL_STATUSES, page_size }).
-const LIVE_CALL_STATUSES = "initiated,ringing,ongoing";
+const get_live_calls = APL_LINK + "api/live-calls/";
 
 // 🔥 NEW — Quick Call (test page) endpoints, reused by the Voice index
 // page's "Add / Call customer" dialog so it saves + dials the exact same
@@ -115,6 +109,7 @@ const get_slot_blocks = (branchId, date) =>
 const post_slot_block = (branchId) => `${APL_LINK}api/branches/${branchId}/slot-blocks/`;
 const delete_slot_block = (id) => `${APL_LINK}api/slot-blocks/${id}/`;
 const get_appointments = APL_LINK + "api/appointments/";
+const delete_appointment = (id) => `${APL_LINK}api/appointments/${id}/`;
 
 // Callback Requests — customer/team callback scheduling (docs §8.5). List
 // is filterable (branch_id/callback_type/status/department/start/end);
@@ -218,10 +213,6 @@ const post_visit_process = (id) => APL_LINK + `api/showroom-visits/batches/${id}
 const get_visit_records = APL_LINK + "api/showroom-visits/records/";
 const visit_record_url = (id) => APL_LINK + `api/showroom-visits/records/${id}/`;
 const get_visit_summary = APL_LINK + "api/showroom-visits/summary/";
-const get_visit_mappings = APL_LINK + "api/showroom-visits/mappings/";
-const post_visit_mapping = APL_LINK + "api/showroom-visits/mappings/";
-const visit_mapping_url = (id) => APL_LINK + `api/showroom-visits/mappings/${id}/`;
-const post_visit_mappings_reapply = APL_LINK + "api/showroom-visits/mappings/reapply/";
 const get_nav_badges = APL_LINK + "api/nav-badges/";
 const get_global_search = APL_LINK + "api/search/";
 const get_analytics = APL_LINK + "api/analytics/"
@@ -944,7 +935,7 @@ export {
   get_recording_detail,
   patch_recording,
   // NEW — Voice index page (Live tab + Add/Call customer dialog)
-  LIVE_CALL_STATUSES,
+  get_live_calls,
   get_quick_call_meta,
   post_quick_call_save,
   get_quick_call_list,
@@ -967,6 +958,7 @@ export {
   post_slot_block,
   delete_slot_block,
   get_appointments,
+  delete_appointment,
   // NEW — callback requests (customer/team)
   get_callbacks,
   patch_callback,
@@ -1058,10 +1050,6 @@ export {
   post_visit_process,
   visit_record_url,
   get_visit_summary,
-  get_visit_mappings,
-  post_visit_mapping,
-  visit_mapping_url,
-  post_visit_mappings_reapply,
   get_visit_records,
   get_nav_badges,
   get_global_search,

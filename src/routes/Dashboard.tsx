@@ -36,8 +36,7 @@ import { formatNumber, formatPercent, formatRelative } from "@/lib/format";
 import {
   get_dashboard_summary,
   get_campaigns,
-  get_recordings,
-  LIVE_CALL_STATUSES,
+  get_live_calls,
   get_appointments,
   get_segments,
   server_get_data,
@@ -114,7 +113,7 @@ function DashboardPage() {
         await Promise.allSettled([
           server_get_data(get_dashboard_summary, { trend_days: 14 }),
           server_get_data(get_campaigns),
-          server_get_data(get_recordings, { status: LIVE_CALL_STATUSES, page_size: 5 }),
+          server_get_data(get_live_calls), // LiveCall table -- calls on the phone right now
           server_get_data(get_appointments, { start: todayIso, end: localIsoDate(until) }),
           server_get_data(get_segments),
         ]);
@@ -166,13 +165,6 @@ function DashboardPage() {
       <PageHeader
         title="Good morning"
         description="Here's what your AI did overnight and what needs your attention today."
-        actions={
-          <>
-            <Button variant="outline" size="sm">
-              Export
-            </Button>
-          </>
-        }
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-6">
@@ -436,7 +428,7 @@ function DashboardPage() {
                         <div className="text-sm font-medium truncate">{customerName}</div>
 
                         <div className="text-xs text-muted-foreground truncate">
-                          {c.final_intent_code || "In progress"}
+                          {c.last_intent || "In progress"}
                         </div>
                       </div>
 

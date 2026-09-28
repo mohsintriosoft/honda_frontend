@@ -11,7 +11,11 @@ import { Plus, MoreVertical, Building2, MapPin, Loader2, AlertCircle } from "luc
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-type BranchWithSlots = Branch & { slotsPerDay: number };
+type BranchWithSlots = Branch & {
+  slotsPerDay: number;
+  slotsPerDayMin?: number;
+  slotsPerDayMax?: number;
+};
 
 export default function BranchesPage() {
   const [branches, setBranches] = useState<BranchWithSlots[]>([]);
@@ -100,7 +104,12 @@ export default function BranchesPage() {
         {!loading && !error && (
           <div className="grid gap-3">
             {visibleBranches.map((b) => {
-              const perDay = b.slotsPerDay;
+              // Hours differ by weekday, so show a range when open days don't all have the same slot count.
+              const perDay = b.slotsPerDay ?? 0;
+              const perDayLabel =
+                b.slotsPerDayMin != null && b.slotsPerDayMax != null && b.slotsPerDayMin !== b.slotsPerDayMax
+                  ? `${formatNumber(b.slotsPerDayMin)}–${formatNumber(b.slotsPerDayMax)}`
+                  : formatNumber(perDay);
 
               return (
                 <Link key={b.id} to={`/branches/${b.id}`}>
@@ -143,7 +152,7 @@ export default function BranchesPage() {
                       <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3">
                         <Stat label="Staff" value={formatNumber(b.stats?.staff ?? 0)} />
 
-                        <Stat label="Slots / day" value={formatNumber(perDay ?? 0)} />
+                        <Stat label="Slots / day" value={perDayLabel} />
 
                         <Stat label="Max / slot" value={formatNumber(b.maxPerSlot ?? 0)} />
 
@@ -186,9 +195,8 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
       <div className="text-[11px] uppercase text-muted-foreground tracking-wide">{label}</div>
 
       <div
-        className={`text-base font-semibold font-display tabular-nums ${
-          highlight ? "text-primary" : ""
-        }`}
+        className={`text-base font-semibold font-display tabular-nums ${highlight ? "text-primary" : ""
+          }`}
       >
         {value}
       </div>

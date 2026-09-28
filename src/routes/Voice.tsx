@@ -49,7 +49,7 @@ import {
   get_quick_vehicle_customer_lookup,
   post_quick_vehicle_save,
   post_plivo_call,
-  LIVE_CALL_STATUSES,
+  get_live_calls,
   server_get_data,
   server_post_json,
   post_plivo_end_call,
@@ -83,6 +83,22 @@ interface RecordingRow {
   quality_pct: number | null;
 }
 
+/** One row from api/live-calls/ (LiveCall table) -- a call on the phone right now. */
+interface LiveCallRow {
+  id: number;
+  session_id: string;
+  customer: RecordingCustomer | null;
+  segment: { id: number; name: string } | null;
+  agent: { id: number; persona_name?: string; agent_name?: string; module?: string } | null;
+  status: string; // dialing | ringing | connected | ending
+  state: string;
+  last_intent: string;
+  last_transcript: string;
+  started_at: string | null;
+  started_at_ist: string | null;
+  duration_seconds: number;
+}
+
 interface DealerMeta {
   id: number;
   name: string;
@@ -102,7 +118,7 @@ function apiErrorMessage(err: any, fallback: string) {
 /* -------------------------------------------------------------------------- */
 
 export default function VoicePage() {
-  const [live, setLive] = useState<RecordingRow[]>([]);
+  const [live, setLive] = useState<LiveCallRow[]>([]);
   const [liveLoading, setLiveLoading] = useState(true);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -110,10 +126,8 @@ export default function VoicePage() {
 
   const fetchLive = useCallback(async () => {
     try {
-      const res = await server_get_data(get_recordings, {
-        status: LIVE_CALL_STATUSES,
-        page_size: 50,
-      });
+      // LiveCall table (calls on the phone now) -- not CallSession/recordings.
+      const res = await server_get_data(get_live_calls);
       setLive(res?.results ?? []);
       setLiveError(null);
     } catch (err) {
@@ -275,7 +289,7 @@ function useLiveAudioListener(sessionId: string) {
   return { listening, connecting, error, toggle };
 }
 
-function LiveCallCard({ call, onEnded }: { call: RecordingRow; onEnded: () => void }) {
+function LiveCallCard({ call, onEnded }: { call: LiveCallRow; onEnded: () => void }) {
   const name = call.customer?.name || call.customer?.phone_number || "Unknown";
 
   const [ending, setEnding] = useState(false);
@@ -396,8 +410,6 @@ const RECORDING_STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: "completed", label: "Completed" },
   { value: "dropped", label: "Dropped" },
   { value: "declined", label: "Declined" },
-  { value: "ringing", label: "Ringing" },
-  { value: "ongoing", label: "Ongoing" },
 ];
 
 const RECORDINGS_PAGE_SIZE = 20;
@@ -966,13 +978,12 @@ function AddCallCustomerDialog({
 
             {lookupMsg && (
               <p
-                className={`text-sm ${
-                  lookupMsg.kind === "err"
+                className={`text-sm ${lookupMsg.kind === "err"
                     ? "text-destructive"
                     : lookupMsg.kind === "ok"
                       ? "text-[color:var(--success)]"
                       : "text-muted-foreground"
-                }`}
+                  }`}
               >
                 {lookupMsg.text}
               </p>
@@ -989,11 +1000,10 @@ function AddCallCustomerDialog({
                       key={v.id}
                       type="button"
                       onClick={() => handlePickVehicle(v)}
-                      className={`text-xs rounded-full px-2 py-1 border ${
-                        selectedVehicleId === String(v.id)
+                      className={`text-xs rounded-full px-2 py-1 border ${selectedVehicleId === String(v.id)
                           ? "bg-primary text-primary-foreground border-primary"
                           : "bg-secondary text-secondary-foreground"
-                      }`}
+                        }`}
                     >
                       {v.vehicle_name || v.registration_no || `#${v.id}`}
                     </button>

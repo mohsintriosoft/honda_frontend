@@ -83,8 +83,8 @@ interface ApiCustomerDetail {
   lifecycleStage: string;
   totalSpend: number;
   vehicle: ApiVehicle | null;
-  insurance: { provider: string; status: string };
-  amc: { plan: string; status: string };
+  insurance: { provider: string; status: string; expiryDate: string | null };
+  amc: { plan: string; status: string; expiryDate: string | null };
   calls: ApiCall[];
   appointments: ApiAppointment[];
   serviceRecords: ApiServiceRecord[];
@@ -198,7 +198,7 @@ export default function CustomerDetailPage() {
         at: a.scheduledFor as string,
         icon: <CalendarDays className="size-3.5" />,
         title: `Appointment — ${a.type}`,
-        body: `${a.advisor} • ${a.bay}`,
+        body: `${a.type} • ${a.scheduledFor ? formatDateTime(a.scheduledFor) : "—"}`,
         tag: a.status,
       })),
     ...serviceRecords
@@ -208,7 +208,7 @@ export default function CustomerDetailPage() {
         at: r.serviceDate as string,
         icon: <Wrench className="size-3.5" />,
         title: `Service completed — ${r.serviceType}`,
-        body: `${formatCurrency(r.amount)}${r.remarks ? ` • ${r.remarks}` : ""}`,
+        body: `${r.serviceType} — ${c.vehicle?.kms} km — ${r.serviceDate}`,
       })),
   ]
     .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
@@ -312,14 +312,14 @@ export default function CustomerDetailPage() {
               <StatusRow
                 icon={<Shield className="size-4" />}
                 label="Insurance"
-                value={c.insurance?.provider || "—"}
+                value={c.insurance?.provider || (c.insurance?.expiryDate ? formatDate(c.insurance.expiryDate) : "—")}
                 extra={<StatusBadge status={c.insurance?.status ?? "none"} />}
               />
 
               <StatusRow
                 icon={<FileCheck className="size-4" />}
                 label="AMC"
-                value={c.amc?.plan || "—"}
+                value={c.amc?.plan || (c.amc?.expiryDate ? formatDate(c.amc.expiryDate) : "—")}
                 extra={<StatusBadge status={c.amc?.status ?? "none"} />}
               />
             </CardContent>
@@ -408,7 +408,7 @@ export default function CustomerDetailPage() {
                     <div>
                       <div className="text-sm font-medium">{appointment.type}</div>
                       <div className="text-xs text-muted-foreground">
-                        {appointment.advisor} • {appointment.bay}
+                        {appointment.type} • {appointment.scheduledFor ? formatDateTime(appointment.scheduledFor) : "—"}
                       </div>
                     </div>
 
@@ -446,7 +446,6 @@ export default function CustomerDetailPage() {
                     </div>
 
                     <div className="text-right">
-                      <div className="text-sm font-medium">{formatCurrency(record.amount)}</div>
                       <div className="text-xs text-muted-foreground mt-1">
                         {record.serviceDate ? formatDate(record.serviceDate) : "—"}
                       </div>

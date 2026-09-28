@@ -22,6 +22,7 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -65,11 +66,26 @@ type Kpis = {
   ai_bookings: number;
   conversion: number | null;
   visits: number;
+  arrivals?: number;
   cost: number;
   cost_per_booking: number | null;
 };
 
+type Workshop = {
+  arrivals: number;
+  after_call: number;
+  without_call: number;
+  report_days: number;
+  first_call_on: string | null;
+  baseline_days: number;
+  baseline_vehicles: number;
+  baseline_per_day: number | null;
+  by_day: { date: string; day: string; arrivals: number; after_call: number; without_call: number }[];
+};
+
 type AnalyticsData = {
+  workshop?: Workshop;
+  last_call_at?: string | null;
   date_from: string;
   date_to: string;
   days: number;
@@ -228,6 +244,185 @@ function EmptyChart({ text = "No data in this period." }: { text?: string }) {
 }
 
 /* ------------------------------------------------------------------
+   Workshop arrivals (CRE daily file) -- shown even with zero calls,
+   because it is the before-Aarohi baseline.
+------------------------------------------------------------------ */
+
+const WORKSHOP_WITH_CALL = "var(--chart-2)"; // green  -- came after an Aarohi call
+const WORKSHOP_NO_CALL = "var(--chart-3)"; // orange -- came without an Aarohi call
+
+function WorkshopTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload as Workshop["by_day"][number];
+  const share = row.arrivals ? Math.round((row.after_call * 100) / row.arrivals) : 0;
+  return (
+    <div className="rounded-lg border bg-popover px-3 py-2 text-xs shadow-md">
+      <div className="mb-1.5 font-medium text-foreground">{label}</div>
+      <div className="space-y-1">
+        <div className="flex items-center justify-between gap-6">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="h-2 w-2 rounded-full" style={{ background: WORKSHOP_WITH_CALL }} />
+            After an Aarohi call
+          </span>
+          <span className="font-semibold tabular-nums">{row.after_call}</span>
+        </div>
+        <div className="flex items-center justify-between gap-6">
+          <span className="flex items-center gap-1.5 text-muted-foreground">
+            <span className="h-2 w-2 rounded-full" style={{ background: WORKSHOP_NO_CALL }} />
+            Without an Aarohi call
+          </span>
+          <span className="font-semibold tabular-nums">{row.without_call}</span>
+        </div>
+      </div>
+      <div className="mt-1.5 flex items-center justify-between gap-6 border-t pt-1.5">
+        <span className="text-muted-foreground">Total arrived</span>
+        <span className="font-semibold tabular-nums">
+          {row.arrivals} <span className="font-normal text-muted-foreground">· {share}% after a call</span>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function WorkshopSection({ w }: { w: Workshop }) {
+  const firstCall = w.first_call_on
+    ? new Date(`${w.first_call_on}T00:00:00`).toLocaleDateString(undefined, {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })
+    : null;
+
+  const withoutCall = Math.max(0, w.arrivals - w.after_call);
+  const sharePct = w.arrivals ? Math.round((w.after_call * 100) / w.arrivals) : 0;
+  const hideZero = (v: number) => (v > 0 ? v : "");
+
+  return (
+    <Card>
+      <CardHeader className="flex-row flex-wrap items-start justify-between gap-3 space-y-0 pb-2">
+        <div>
+          <CardTitle className="text-base font-display">Workshop arrivals</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            Vehicles in the CRE daily file · {w.report_days} report day{w.report_days === 1 ? "" : "s"} in this period
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-3">
+          <LegendDot color={WORKSHOP_WITH_CALL} label="After an Aarohi call" />
+          <LegendDot color={WORKSHOP_NO_CALL} label="Without an Aarohi call" />
+        </div>
+      </CardHeader>
+
+      <CardContent className="space-y-5">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {/* Arrived */}
+          <div className="rounded-xl border p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Arrived</div>
+              <Store className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-1 text-2xl font-semibold font-display tabular-nums">{num(w.arrivals)}</div>
+            <div className="text-xs text-muted-foreground">vehicles in the period</div>
+          </div>
+
+          {/* After a call, with share of arrivals */}
+          <div className="rounded-xl border p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                After an Aarohi call
+              </div>
+              <PhoneCall className="h-4 w-4" style={{ color: WORKSHOP_WITH_CALL }} />
+            </div>
+            <div className="mt-1 flex items-baseline gap-2">
+              <span className="text-2xl font-semibold font-display tabular-nums">{num(w.after_call)}</span>
+              <span className="text-xs font-medium tabular-nums" style={{ color: WORKSHOP_WITH_CALL }}>
+                {sharePct}%
+              </span>
+            </div>
+            <div className="mt-2 flex h-1.5 overflow-hidden rounded-full bg-muted">
+              <div style={{ width: `${sharePct}%`, background: WORKSHOP_WITH_CALL }} />
+              <div style={{ width: `${100 - sharePct}%`, background: WORKSHOP_NO_CALL, opacity: w.arrivals ? 1 : 0 }} />
+            </div>
+            <div className="mt-1.5 text-xs text-muted-foreground">
+              {num(withoutCall)} came without a call
+            </div>
+          </div>
+
+          {/* Baseline */}
+          <div className="rounded-xl border p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                Baseline {firstCall ? "before calls" : "(no calls yet)"}
+              </div>
+              <Clock className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="mt-1 text-2xl font-semibold font-display tabular-nums">
+              {w.baseline_per_day != null ? (
+                <>
+                  {w.baseline_per_day}
+                  <span className="text-sm font-normal text-muted-foreground"> /day</span>
+                </>
+              ) : (
+                "—"
+              )}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {num(w.baseline_vehicles)} vehicles over {w.baseline_days} day{w.baseline_days === 1 ? "" : "s"}
+            </div>
+          </div>
+        </div>
+
+        <div className="h-[240px]">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={w.by_day} margin={{ top: 16, right: 8, left: -20, bottom: 0 }} barCategoryGap="30%">
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey="day"
+                tick={{ fontSize: 11 }}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+                tickMargin={8}
+                minTickGap={12}
+              />
+              <YAxis
+                tick={{ fontSize: 11 }}
+                stroke="var(--muted-foreground)"
+                tickLine={false}
+                axisLine={false}
+                allowDecimals={false}
+              />
+              <Tooltip content={<WorkshopTooltip />} cursor={{ fill: "var(--muted)", opacity: 0.5 }} />
+              <Bar dataKey="after_call" name="After an Aarohi call" stackId="w" fill={WORKSHOP_WITH_CALL} maxBarSize={56}>
+                <LabelList dataKey="after_call" position="center" formatter={hideZero} fill="#fff" fontSize={12} fontWeight={600} />
+              </Bar>
+              <Bar
+                dataKey="without_call"
+                name="Without an Aarohi call"
+                stackId="w"
+                fill={WORKSHOP_NO_CALL}
+                radius={[6, 6, 0, 0]}
+                maxBarSize={56}
+              >
+                <LabelList dataKey="without_call" position="center" formatter={hideZero} fill="#fff" fontSize={12} fontWeight={600} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div className="flex items-start gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+          <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <p>
+            {firstCall
+              ? `Aarohi's first call was on ${firstCall}. Arrivals before that date are your baseline — compare it with the days after to see what the calls add.`
+              : "Aarohi hasn't made any calls yet, so every arrival here is the baseline. Once calls start, visits that follow a call are shown separately."}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+/* ------------------------------------------------------------------
    Page
 ------------------------------------------------------------------ */
 
@@ -284,9 +479,9 @@ export default function AnalyticsPage() {
   const exportCampaigns = () => {
     if (!data) return;
     downloadCsv(`campaigns_${data.date_from}_${data.date_to}.csv`, [
-      ["Campaign", "Status", "Calls", "Connected", "Connect %", "Booked", "Conversion %", "Showroom visits", "Cost (INR)"],
+      ["Campaign", "Status", "Calls", "Connected", "Connect %", "Booked", "Conversion %", "Showroom visits"],
       ...data.campaigns.map((c) => [
-        c.name, c.status, c.calls, c.connected, c.connect_rate, c.booked, c.conversion, c.visits, c.cost,
+        c.name, c.status, c.calls, c.connected, c.connect_rate, c.booked, c.conversion, c.visits,
       ]),
     ]);
   };
@@ -405,15 +600,22 @@ export default function AnalyticsPage() {
                 delta={<Delta now={k.visits} before={p.visits} />}
               />
               <Kpi
+                label="Workshop arrivals"
+                value={num(k.arrivals ?? 0)}
+                icon={<Store className="size-3.5" />}
+                sub={`${num(Math.max(0, (k.arrivals ?? 0) - k.visits))} came without an Aarohi call`}
+                delta={<Delta now={k.arrivals ?? 0} before={p.arrivals ?? 0} />}
+              />
+              {/* <Kpi
                 label="Cost per booking"
                 value={rupees(k.cost_per_booking, 2)}
                 icon={<Wallet className="size-3.5" />}
                 sub={`${rupees(k.cost, 0)} total spend`}
                 delta={<Delta now={k.cost_per_booking} before={p.cost_per_booking} lowerIsBetter />}
-              />
+              /> */}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <Kpi
                 label="Connect rate"
                 value={pct(k.connect_rate)}
@@ -434,19 +636,53 @@ export default function AnalyticsPage() {
                 sub={`${num(k.bookings - k.ai_bookings)} made by staff`}
                 delta={<Delta now={k.bookings} before={p.bookings} />}
               />
-              <Kpi
+              {/* <Kpi
                 label="Total AI spend"
                 value={rupees(k.cost, 0)}
                 icon={<IndianRupee className="size-3.5" />}
                 sub="LLM + speech + telephony"
                 delta={<Delta now={k.cost} before={p.cost} lowerIsBetter />}
-              />
+              /> */}
             </div>
+
+            {data.workshop && data.workshop.arrivals > 0 && <WorkshopSection w={data.workshop} />}
 
             {k.calls === 0 ? (
               <Card>
-                <CardContent className="py-16 text-center text-sm text-muted-foreground">
-                  No calls in this period{branch !== "all" ? " for this branch" : ""}. Try a wider date range.
+                <CardContent className="py-16 text-center text-sm text-muted-foreground space-y-3">
+                  <p>No calls in this period{branch !== "all" ? " for this branch" : ""}.</p>
+                  {data.last_call_at ? (
+                    <>
+                      <p>
+                        The most recent call was on{" "}
+                        <span className="font-medium text-foreground">
+                          {new Date(`${data.last_call_at}T00:00:00`).toLocaleDateString(undefined, {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </span>
+                        .
+                      </p>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          const to = new Date(`${data.last_call_at}T00:00:00`);
+                          const from = new Date(to);
+                          from.setDate(from.getDate() - 29);
+                          const iso = (d: Date) =>
+                            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                          setCustom({ from: iso(from), to: iso(to) });
+                          setRange("custom");
+                        }}
+                      >
+                        Show the 30 days up to that call
+                      </Button>
+                    </>
+                  ) : (
+                    <p>No calls have been recorded for this dealer yet.</p>
+                  )}
                 </CardContent>
               </Card>
             ) : (
@@ -613,7 +849,6 @@ export default function AnalyticsPage() {
                               <TableHead className="text-right">Booked</TableHead>
                               <TableHead className="text-right">Conversion</TableHead>
                               <TableHead className="text-right">Visits</TableHead>
-                              <TableHead className="text-right">Cost / booking</TableHead>
                             </TableRow>
                           </TableHeader>
                           <TableBody>
@@ -630,9 +865,6 @@ export default function AnalyticsPage() {
                                 <TableCell className="text-right tabular-nums font-medium">{num(c.booked)}</TableCell>
                                 <TableCell className="text-right tabular-nums">{pct(c.conversion)}</TableCell>
                                 <TableCell className="text-right tabular-nums">{num(c.visits)}</TableCell>
-                                <TableCell className="text-right tabular-nums">
-                                  {c.booked ? rupees(c.cost / c.booked, 2) : "—"}
-                                </TableCell>
                               </TableRow>
                             ))}
                           </TableBody>
@@ -642,7 +874,7 @@ export default function AnalyticsPage() {
                   </CardContent>
                 </Card>
 
-                <div className="grid gap-4 lg:grid-cols-3">
+                <div className="grid gap-4 lg:grid-cols-2">
                   {/* ---------- Branches ---------- */}
                   <Card>
                     <CardHeader className="pb-2">
@@ -720,7 +952,7 @@ export default function AnalyticsPage() {
                   </Card>
 
                   {/* ---------- Cost split ---------- */}
-                  <Card>
+                  {/* <Card>
                     <CardHeader className="pb-2">
                       <CardTitle className="text-base font-display">Where the money goes</CardTitle>
                       <p className="text-xs text-muted-foreground">{rupees(costTotal, 0)} in this period</p>
@@ -753,7 +985,7 @@ export default function AnalyticsPage() {
                         </div>
                       )}
                     </CardContent>
-                  </Card>
+                  </Card> */}
                 </div>
               </>
             )}

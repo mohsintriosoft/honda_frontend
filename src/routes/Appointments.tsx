@@ -39,6 +39,7 @@ import {
   X,
   Loader2,
   Globe,
+  Trash2,
 } from "lucide-react";
 import { MetricTile } from "@/components/data/KpiCard";
 import {
@@ -48,6 +49,7 @@ import {
   post_manual_slot,
   post_slot_block,
   delete_slot_block,
+  delete_appointment,
   server_get_data,
   server_post_json,
   server_delete_data,
@@ -430,6 +432,9 @@ export default function AppointmentsPage() {
   const [blockReason, setBlockReason] = useState("");
   const [blockSaving, setBlockSaving] = useState(false);
 
+  const [deleteTarget, setDeleteTarget] = useState<AppointmentRow | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
   const [slotDetail, setSlotDetail] = useState<{
     date: string;
     time: string;
@@ -633,6 +638,32 @@ export default function AppointmentsPage() {
       setError(apiErrorMessage(err, "Couldn't block that range. Try again."));
     } finally {
       setBlockSaving(false);
+    }
+  }
+
+  async function confirmDeleteAppointment() {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await server_delete_data(delete_appointment(target.id));
+      if (res && res.success === false) {
+        setError(`Couldn't delete that appointment (${res.error ?? "unknown error"}).`);
+        return;
+      }
+      setDeleteTarget(null);
+      // Drop it from the open slot-detail dialog right away; the reload below
+      // refreshes the calendar + list from the server (which no longer returns it).
+      setSlotDetail((d) =>
+        d ? { ...d, appts: d.appts.filter((a) => a.id !== target.id) } : d,
+      );
+      setAppointments((list) => list.filter((a) => a.id !== target.id));
+      refreshCalendar();
+    } catch (err) {
+      setError(apiErrorMessage(err, "Couldn't delete that appointment. Try again."));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -1085,6 +1116,7 @@ export default function AppointmentsPage() {
                       <TableHead>When</TableHead>
                       <TableHead>Source</TableHead>
                       <TableHead>Status</TableHead>
+                      {canManage && <TableHead className="w-10" />}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -1109,12 +1141,25 @@ export default function AppointmentsPage() {
                         <TableCell>
                           <StatusBadge status={toBadgeStatus(appointment.status) as any} />
                         </TableCell>
+                        {canManage && (
+                          <TableCell>
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="size-7 text-destructive hover:text-destructive"
+                              onClick={() => setDeleteTarget(appointment)}
+                              aria-label="Delete appointment"
+                            >
+                              <Trash2 className="size-4" />
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))}
                     {appointments.length === 0 && (
                       <TableRow>
                         <TableCell
-                          colSpan={isGlobal ? 7 : 6}
+                          colSpan={(isGlobal ? 7 : 6) + (canManage ? 1 : 0)}
                           className="text-center text-sm text-muted-foreground py-8"
                         >
                           No appointments in this window.
@@ -1347,6 +1392,17 @@ export default function AppointmentsPage() {
                   {isGlobal && a.branchName ? ` · ${a.branchName}` : ""}
                 </span>
                 <StatusBadge status={toBadgeStatus(a.status) as any} />
+                {canManage && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="size-7 text-destructive hover:text-destructive"
+                    onClick={() => setDeleteTarget(a)}
+                    aria-label="Delete appointment"
+                  >
+                    <Trash2 className="size-4" />
+                  </Button>
+                )}
               </div>
             ))}
           </div>
@@ -1354,6 +1410,27 @@ export default function AppointmentsPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setSlotDetail(null)}>
               Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      {/* Delete appointment confirm */}
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && !deleting && setDeleteTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete appointment?</DialogTitle>
+            <DialogDescription>
+              {deleteTarget
+                ? `${apptDisplayName(deleteTarget, false)} · ${displayDate(deleteTarget.slotDate)} ${displayTime(deleteTarget.slotTime)}. It will be removed from the calendar and the slot becomes free to book again.`
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)} disabled={deleting}>
+              Cancel
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteAppointment} disabled={deleting}>
+              {deleting ? "Deleting…" : "Delete"}
             </Button>
           </DialogFooter>
         </DialogContent>
