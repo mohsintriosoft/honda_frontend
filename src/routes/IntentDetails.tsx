@@ -17,7 +17,7 @@ import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { Search, Download, CheckCircle2, XCircle, PhoneCall, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Download, Loader2, CheckCircle2, XCircle, PhoneCall, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { initials, formatRelative } from "@/lib/format";
 import { get_intent_summary, get_intent_turns, server_get_data } from "@/components/ServiceConnection/serviceconnection";
@@ -112,6 +112,48 @@ function mapTurn(row: any): IntentTurnRow {
   };
 }
 
+const EXPORT_PAGE_SIZE = 200;
+
+const CSV_COLUMNS: { header: string; value: (t: IntentTurnRow) => unknown }[] = [
+  { header: "Customer", value: (t) => t.customerName },
+  { header: "Branch", value: (t) => t.branch },
+  { header: "Call ID", value: (t) => t.callSessionId },
+  { header: "Turn #", value: (t) => t.turnNumber },
+  { header: "Customer said", value: (t) => t.customerText },
+  { header: "Detected intent", value: (t) => intentLabel(t.detectedIntent) },
+  { header: "Correct intent", value: (t) => intentLabel(t.correctIntent) },
+  { header: "Confidence (%)", value: (t) => t.confidence },
+  { header: "Filler used", value: (t) => t.fillerUsed },
+  { header: "Result", value: (t) => (t.match ? "Correct" : "Mismatch") },
+  { header: "Timestamp", value: (t) => t.timestamp },
+];
+
+function csvCell(value: unknown): string {
+  let s = value === null || value === undefined ? "" : String(value);
+  // Prevent spreadsheet formula injection from customer-supplied text
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+function buildCsv(rows: IntentTurnRow[]): string {
+  const head = CSV_COLUMNS.map((c) => csvCell(c.header)).join(",");
+  const body = rows.map((r) => CSV_COLUMNS.map((c) => csvCell(c.value(r))).join(","));
+  return [head, ...body].join("\r\n");
+}
+
+function downloadCsv(filename: string, csv: string) {
+  // BOM so Excel reads UTF-8 (Hindi/other non-ASCII customer text) correctly
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export default function IntentDetailsPage() {
   const { id } = useParams<{ id: string }>();
 
@@ -140,6 +182,43 @@ export default function IntentDetailsPage() {
   const [view, setView] = useState<ViewFilter>("all");
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 25;
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+
+  const handleExport = async () => {
+    if (!id || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const all: IntentTurnRow[] = [];
+      let total = Infinity;
+      let p = 1;
+
+      while (all.length < total) {
+        const res = await server_get_data(get_intent_turns(id), {
+          view,
+          search: q || undefined,
+          page: p,
+          page_size: EXPORT_PAGE_SIZE,
+        });
+        const batch = (res?.results ?? []).map(mapTurn);
+        total = res?.count ?? 0;
+        if (batch.length === 0) break;
+        all.push(...batch);
+        p += 1;
+      }
+
+      const slug = (summary?.code ?? `intent-${id}`).replace(/[^a-z0-9_-]/gi, "_");
+      const date = new Date().toISOString().slice(0, 10);
+      downloadCsv(`${slug}_${view}_turns_${date}.csv`, buildCsv(all));
+    } catch (err) {
+      console.error("Failed to export intent turns:", err);
+      setExportError("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // Summary strip — fetched once per intent id. label/description
   // come straight off the Intent row (see voice_bot.models.Intent).
@@ -259,10 +338,18 @@ export default function IntentDetailsPage() {
         description={summary?.description ?? ""}
         breadcrumbs={[{ label: "Intents", to: "/intents" }, { label: headerLabel }]}
         actions={
-          <Button variant="outline" size="sm">
-            <Download className="size-4" />
-            Export
-          </Button>
+          <div className="flex items-center gap-2">
+            {exportError && <span className="text-xs text-destructive">{exportError}</span>}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={exporting || turnsCount === 0}
+            >
+              {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+              {exporting ? "Exporting…" : "Export"}
+            </Button>
+          </div>
         }
       />
 
@@ -277,7 +364,7 @@ export default function IntentDetailsPage() {
             </CardContent>
           </Card>
         ) : (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Card>
               <CardContent className="pt-6">
                 <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
