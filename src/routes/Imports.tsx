@@ -56,14 +56,14 @@ import {
     post_import_upload,
     post_import_delete,
     get_branches,
-    get_dialer_schedule,
-    post_dialer_schedule,
+    // get_dialer_schedule,
+    // post_dialer_schedule,
     server_get_data,
-    server_post_json,
+    // server_post_json,
     server_post_data,
     server_upload_file,
 } from "@/components/ServiceConnection/serviceconnection";
-import { hasPerm } from "@/lib/permissions";
+// import { hasPerm } from "@/lib/permissions";
 
 /* =========================================================
    TYPES — mirror _serialize_csv_stats() in views_import.py
@@ -474,89 +474,89 @@ function DeleteDialog({
    SCHEDULER TIME CARD — hidden for roles that can't use it
 ========================================================= */
 
-function SchedulerTimeCard() {
-    // Viewing needs imports.manage; changing it is a campaign/system setting.
-    const canSave = hasPerm("campaigns.edit", "settings.manage");
-    const [value, setValue] = useState<string>("");
-    const [loading, setLoading] = useState(true);
-    const [forbidden, setForbidden] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [saved, setSaved] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+// function SchedulerTimeCard() {
+//     // Viewing needs imports.manage; changing it is a campaign/system setting.
+//     const canSave = hasPerm("campaigns.edit", "settings.manage");
+//     const [value, setValue] = useState<string>("");
+//     const [loading, setLoading] = useState(true);
+//     const [forbidden, setForbidden] = useState(false);
+//     const [saving, setSaving] = useState(false);
+//     const [saved, setSaved] = useState(false);
+//     const [error, setError] = useState<string | null>(null);
 
-    useEffect(() => {
-        server_get_data(get_dialer_schedule)
-            .then((res) => {
-                if (res?.success) {
-                    const hh = String(res.hour ?? 0).padStart(2, "0");
-                    const mm = String(res.minute ?? 0).padStart(2, "0");
-                    setValue(`${hh}:${mm}`);
-                } else {
-                    setError(res?.error || "Could not load scheduler time");
-                }
-            })
-            .catch((err: any) => {
-                if (err?.response?.status === 403) setForbidden(true);
-                else setError(apiErrorMessage(err, "Could not load scheduler time"));
-            })
-            .finally(() => setLoading(false));
-    }, []);
+//     useEffect(() => {
+//         server_get_data(get_dialer_schedule)
+//             .then((res) => {
+//                 if (res?.success) {
+//                     const hh = String(res.hour ?? 0).padStart(2, "0");
+//                     const mm = String(res.minute ?? 0).padStart(2, "0");
+//                     setValue(`${hh}:${mm}`);
+//                 } else {
+//                     setError(res?.error || "Could not load scheduler time");
+//                 }
+//             })
+//             .catch((err: any) => {
+//                 if (err?.response?.status === 403) setForbidden(true);
+//                 else setError(apiErrorMessage(err, "Could not load scheduler time"));
+//             })
+//             .finally(() => setLoading(false));
+//     }, []);
 
-    const handleSave = async () => {
-        if (!value) return;
-        const [hh, mm] = value.split(":").map(Number);
-        setSaving(true);
-        setError(null);
-        setSaved(false);
-        try {
-            const res = await server_post_json(post_dialer_schedule, { hour: hh, minute: mm });
-            if (!res?.success) throw { response: { data: res } };
-            setSaved(true);
-            setTimeout(() => setSaved(false), 2000);
-        } catch (err: any) {
-            setError(apiErrorMessage(err, "Save failed"));
-        } finally {
-            setSaving(false);
-        }
-    };
+//     const handleSave = async () => {
+//         if (!value) return;
+//         const [hh, mm] = value.split(":").map(Number);
+//         setSaving(true);
+//         setError(null);
+//         setSaved(false);
+//         try {
+//             const res = await server_post_json(post_dialer_schedule, { hour: hh, minute: mm });
+//             if (!res?.success) throw { response: { data: res } };
+//             setSaved(true);
+//             setTimeout(() => setSaved(false), 2000);
+//         } catch (err: any) {
+//             setError(apiErrorMessage(err, "Save failed"));
+//         } finally {
+//             setSaving(false);
+//         }
+//     };
 
-    if (forbidden) return null;
+//     if (forbidden) return null;
 
-    return (
-        <Card className="mb-4">
-            <CardHeader className="pb-3">
-                <CardTitle className="text-base">Dialer scheduler time</CardTitle>
-            </CardHeader>
-            <CardContent className="flex items-center gap-3">
-                {loading ? (
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                ) : (
-                    <>
-                        <Input
-                            type="time"
-                            value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            disabled={!canSave}
-                            className="w-32"
-                        />
-                        {canSave && (
-                            <Button onClick={handleSave} disabled={saving || !value} className="gap-2">
-                                {saving && <Loader2 className="size-4 animate-spin" />}
-                                {saving ? "Saving…" : "Save"}
-                            </Button>
-                        )}
-                        {saved && (
-                            <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
-                                <CheckCircle2 className="size-3.5" /> Saved
-                            </span>
-                        )}
-                        {error && <span className="text-xs text-destructive">{error}</span>}
-                    </>
-                )}
-            </CardContent>
-        </Card>
-    );
-}
+//     return (
+//         <Card className="mb-4">
+//             <CardHeader className="pb-3">
+//                 <CardTitle className="text-base">Dialer scheduler time</CardTitle>
+//             </CardHeader>
+//             <CardContent className="flex items-center gap-3">
+//                 {loading ? (
+//                     <Loader2 className="size-4 animate-spin text-muted-foreground" />
+//                 ) : (
+//                     <>
+//                         <Input
+//                             type="time"
+//                             value={value}
+//                             onChange={(e) => setValue(e.target.value)}
+//                             disabled={!canSave}
+//                             className="w-32"
+//                         />
+//                         {canSave && (
+//                             <Button onClick={handleSave} disabled={saving || !value} className="gap-2">
+//                                 {saving && <Loader2 className="size-4 animate-spin" />}
+//                                 {saving ? "Saving…" : "Save"}
+//                             </Button>
+//                         )}
+//                         {saved && (
+//                             <span className="inline-flex items-center gap-1 text-xs text-emerald-600 dark:text-emerald-400">
+//                                 <CheckCircle2 className="size-3.5" /> Saved
+//                             </span>
+//                         )}
+//                         {error && <span className="text-xs text-destructive">{error}</span>}
+//                     </>
+//                 )}
+//             </CardContent>
+//         </Card>
+//     );
+// }
 
 /* =========================================================
    PAGE
@@ -623,7 +623,7 @@ export default function Imports() {
                     </Alert>
                 )}
 
-                <SchedulerTimeCard />
+                {/* <SchedulerTimeCard /> */}
 
                 <Card>
                     <CardHeader className="pb-3">

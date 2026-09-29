@@ -119,11 +119,15 @@ function callStatusTone(status: string): string {
   return CALL_STATUS_TONE[status] ?? "bg-secondary text-muted-foreground";
 }
 
-// Priority order: Booked > Callback > Not interested > No answer.
+// Same six codes the backend saves (views.py _OUTCOME_PRIORITY), in
+// priority order: Booked > Callback > Not interested > Not booked >
+// Dropped > No answer.
 const OUTCOME_OPTIONS = [
   { value: "booked", label: "Booked" },
   { value: "callback", label: "Callback" },
   { value: "declined", label: "Not interested" },
+  { value: "not_booked", label: "Not booked" },
+  { value: "dropped", label: "Dropped" },
   { value: "no_answer", label: "No answer" },
 ] as const;
 
@@ -156,7 +160,8 @@ function parseModuleFromName(name: string): AgentWorkflow | null {
 
 function outcomeLabel(code: string): string {
   if (!code) {
-    return "Not classified";
+    // outcome is set when the call ends -- empty means it is still running
+    return "In progress";
   }
   return (
     OUTCOME_OPTIONS.find((o) => o.value === code)?.label ??
@@ -180,7 +185,7 @@ type RecordingRow = Recording & {
   callStatus: string;
   llmCost: number | null;
   timeIst: string | null;
-  qualityKnown?: boolean;
+  // qualityKnown?: boolean;
 };
 
 function joinUrl(...parts: string[]): string {
@@ -216,33 +221,33 @@ function mapRecordingApiToRecording(session: any): RecordingRow {
 
   const transcript = Array.isArray(session?.transcript)
     ? session.transcript.map((t: any) => ({
-        speaker: t.speaker === "bot" ? "agent" : "customer",
-        text: t.text ?? "",
-        at: t.at ?? t.timestamp ?? "",
-        filler: t.filler ?? "",
-      }))
+      speaker: t.speaker === "bot" ? "agent" : "customer",
+      text: t.text ?? "",
+      at: t.at ?? t.timestamp ?? "",
+      filler: t.filler ?? "",
+    }))
     : [];
 
   const detectedIntents: string[] = Array.isArray(session?.intent_history)
     ? Array.from(
-        new Set(
-          session.intent_history
-            .map((h: any) => h?.intent)
-            .filter((v: unknown): v is string => typeof v === "string" && v.length > 0),
-        ),
-      )
+      new Set(
+        session.intent_history
+          .map((h: any) => h?.intent)
+          .filter((v: unknown): v is string => typeof v === "string" && v.length > 0),
+      ),
+    )
     : [];
 
   // accuracy is stored as 0-100 on the backend -- no 0-1 scaling.
-  let quality = 0;
-  let qualityKnown = false;
-  if (typeof session.quality_pct === "number") {
-    quality = session.quality_pct;
-    qualityKnown = true;
-  } else if (typeof session.accuracy === "number") {
-    quality = Math.round(session.accuracy);
-    qualityKnown = true;
-  }
+  // let quality = 0;
+  // let qualityKnown = false;
+  // if (typeof session.quality_pct === "number") {
+  //   quality = session.quality_pct;
+  //   qualityKnown = true;
+  // } else if (typeof session.accuracy === "number") {
+  //   quality = Math.round(session.accuracy);
+  //   qualityKnown = true;
+  // }
 
   const llmCost: number | null = typeof session.total_cost === "number" ? session.total_cost : null;
 
@@ -252,22 +257,22 @@ function mapRecordingApiToRecording(session: any): RecordingRow {
     session.started_at_ist_date ??
     (session.started_at
       ? new Date(session.started_at).toLocaleDateString("en-IN", {
-          timeZone: "Asia/Kolkata",
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        })
+        timeZone: "Asia/Kolkata",
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      })
       : "");
 
   const istTime: string | null =
     session.started_at_ist_time ??
     (session.started_at
       ? new Date(session.started_at).toLocaleTimeString("en-IN", {
-          timeZone: "Asia/Kolkata",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: true,
-        })
+        timeZone: "Asia/Kolkata",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      })
       : null);
 
   return {
@@ -281,9 +286,11 @@ function mapRecordingApiToRecording(session: any): RecordingRow {
     language: (session.language ?? "Hindi") as Recording["language"],
     date: istDate,
     durationSec: session.duration_seconds ?? 0,
-    outcome: (session.final_intent_code || "") as Recording["outcome"],
-    quality,
-    qualityKnown,
+    // backend-normalised six-code outcome; falls back to the raw code for
+    // an older API that does not send `outcome` yet
+    outcome: (session.outcome || session.final_intent_code || "") as Recording["outcome"],
+    // quality,
+    // qualityKnown,
     status: mapCallStatusToRecordingStatus(callStatus),
     callStatus,
     llmCost,
@@ -777,13 +784,13 @@ export default function RecordingsPage() {
       all.map((r) =>
         r.id === id
           ? {
-              ...r,
-              module,
-              moduleSource: "manual" as ModuleSource,
-              moduleConfidence: 100,
-              moduleAlternatives: [],
-              moduleEvidence: "Set by a reviewer in the library",
-            }
+            ...r,
+            module,
+            moduleSource: "manual" as ModuleSource,
+            moduleConfidence: 100,
+            moduleAlternatives: [],
+            moduleEvidence: "Set by a reviewer in the library",
+          }
           : r,
       ),
     );
@@ -791,13 +798,13 @@ export default function RecordingsPage() {
     setOpen((current) =>
       current && current.id === id
         ? {
-            ...current,
-            module,
-            moduleSource: "manual",
-            moduleConfidence: 100,
-            moduleAlternatives: [],
-            moduleEvidence: "Set by a reviewer in the library",
-          }
+          ...current,
+          module,
+          moduleSource: "manual",
+          moduleConfidence: 100,
+          moduleAlternatives: [],
+          moduleEvidence: "Set by a reviewer in the library",
+        }
         : current,
     );
   };
@@ -948,7 +955,7 @@ export default function RecordingsPage() {
                     <TableHead>Time (IST)</TableHead>
                     <TableHead>Duration</TableHead>
                     <TableHead>Outcome</TableHead>
-                    <TableHead>Quality</TableHead>
+                    {/* <TableHead>Quality</TableHead> */}
                     <TableHead>Status</TableHead>
                     <TableHead />
                   </TableRow>
@@ -982,9 +989,9 @@ export default function RecordingsPage() {
                         {outcomeLabel(r.outcome)}
                       </TableCell>
 
-                      <TableCell className="tabular-nums text-muted-foreground">
+                      {/* <TableCell className="tabular-nums text-muted-foreground">
                         {r.qualityKnown || r.quality ? `${r.quality}%` : "—"}
-                      </TableCell>
+                      </TableCell> */}
 
                       <TableCell>
                         <Badge className={callStatusTone(r.callStatus)}>

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/AppShell";
-import { KpiCard, MetricTile } from "@/components/data/KpiCard";
+import { KpiCard } from "@/components/data/KpiCard";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +19,8 @@ import {
   Activity,
   Sparkles,
   ArrowRight,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 
 import {
@@ -76,6 +78,16 @@ const EMPTY_KPIS: DashboardKpis = {
 
 const UPCOMING_DAYS = 7;
 
+// Live campaigns card: rows shown before "Show more"
+const CAMPAIGNS_COLLAPSED = 3;
+
+const CAMPAIGN_STATS = [
+  { key: "connected", label: "Connected", short: "Conn", box: "bg-muted/60", text: "text-muted-foreground" },
+  { key: "interested", label: "Interested", short: "Int", box: "bg-emerald-500/10", text: "text-emerald-600" },
+  { key: "booked", label: "Booked", short: "Book", box: "bg-sky-500/10", text: "text-sky-600" },
+  { key: "escalated", label: "Escalated", short: "Esc", box: "bg-rose-500/10", text: "text-rose-600" },
+] as const;
+
 // Local calendar date (IST in the browser), never UTC.
 function localIsoDate(d: Date = new Date()): string {
   const y = d.getFullYear();
@@ -94,6 +106,7 @@ function DashboardPage() {
   const [liveCalls, setLiveCalls] = useState<any[]>([]);
   const [upcoming, setUpcoming] = useState<any[]>([]);
   const [segments, setSegments] = useState<any[]>([]);
+  const [showAllCampaigns, setShowAllCampaigns] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -175,7 +188,7 @@ function DashboardPage() {
         )}
 
         {/* KPI grid */}
-        <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           <KpiCard
             label="Total Customers"
             value={formatNumber(k.totalCustomers)}
@@ -207,12 +220,12 @@ function DashboardPage() {
             icon={<CalendarCheck className="size-4" />}
           />
 
-          <KpiCard
+          {/* <KpiCard
             label="Service Due Today"
             value={formatNumber(k.serviceDueToday)}
             icon={<Wrench className="size-4" />}
             hint="across segments"
-          />
+          /> */}
 
           <KpiCard
             label="Insurance Due (30d)"
@@ -333,9 +346,16 @@ function DashboardPage() {
 
         {/* Live campaigns + live calls */}
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card>
-            <CardHeader className="flex-row items-center justify-between">
-              <CardTitle className="text-base font-display">Today's live campaigns</CardTitle>
+          <Card className="self-start">
+            <CardHeader className="flex-row items-center justify-between pb-3">
+              <CardTitle className="text-base font-display flex items-center gap-2">
+                Today's live campaigns
+                {liveCampaigns.length > 0 && (
+                  <span className="rounded-full bg-emerald-500/10 text-emerald-600 text-[11px] font-medium px-2 py-0.5">
+                    {liveCampaigns.length} live
+                  </span>
+                )}
+              </CardTitle>
 
               <Button variant="ghost" size="sm" asChild>
                 <Link to="/campaigns">
@@ -345,48 +365,94 @@ function DashboardPage() {
               </Button>
             </CardHeader>
 
-            <CardContent className="space-y-2">
+            <CardContent className="space-y-3">
               {!loading && liveCampaigns.length === 0 && (
                 <div className="text-sm text-muted-foreground py-4">
                   No campaigns are live right now.
                 </div>
               )}
 
-              {liveCampaigns.map((c) => (
-                <Link
-                  key={c.id}
-                  to={`/campaigns/${c.id}`}
-                  className="block rounded-lg border p-3 hover:bg-accent/50 transition-colors"
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium truncate">{c.name}</div>
-
-                      <div className="mt-0.5 text-xs text-muted-foreground">
-                        {c.agent?.persona_name ?? c.agent?.agent_name ?? "AI Agent"} •{" "}
-                        {c.totals?.customers ?? 0} customers
+              {liveCampaigns.length > 0 && (
+                <>
+                  {/* Combined totals across all live campaigns */}
+                  <div className="grid grid-cols-4 gap-2">
+                    {CAMPAIGN_STATS.map((st) => (
+                      <div key={st.key} className={`rounded-lg px-3 py-2 ${st.box}`}>
+                        <div className={`text-[10px] uppercase tracking-wide ${st.text}`}>
+                          {st.label}
+                        </div>
+                        <div className="text-xl font-semibold font-display leading-tight">
+                          {formatNumber(
+                            liveCampaigns.reduce((n, c) => n + (c.totals?.[st.key] ?? 0), 0),
+                          )}
+                        </div>
                       </div>
-                    </div>
-
-                    <StatusBadge status={c.status} />
+                    ))}
                   </div>
 
-                  <div className="mt-3 grid grid-cols-4 gap-2">
-                    <MetricTile label="Connected" value={c.totals?.connected ?? 0} />
-                    <MetricTile
-                      label="Interested"
-                      value={c.totals?.interested ?? 0}
-                      tone="success"
-                    />
-                    <MetricTile label="Booked" value={c.totals?.booked ?? 0} tone="info" />
-                    <MetricTile
-                      label="Escalated"
-                      value={c.totals?.escalated ?? 0}
-                      tone="destructive"
-                    />
+                  {/* One compact row per campaign */}
+                  <div className="divide-y rounded-lg border">
+                    {(showAllCampaigns
+                      ? liveCampaigns
+                      : liveCampaigns.slice(0, CAMPAIGNS_COLLAPSED)
+                    ).map((c) => (
+                      <Link
+                        key={c.id}
+                        to={`/campaigns/${c.id}`}
+                        className="group flex items-center gap-3 px-3 py-2.5 hover:bg-accent/50 transition-colors"
+                      >
+                        <span className="relative flex size-2 shrink-0">
+                          <span className="absolute inline-flex size-full rounded-full bg-emerald-500 opacity-60 animate-ping" />
+                          <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
+                        </span>
+
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">{c.name}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {c.agent?.persona_name ?? c.agent?.agent_name ?? "AI Agent"} •{" "}
+                            {c.totals?.customers ?? 0} customers
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {CAMPAIGN_STATS.map((st) => (
+                            <div
+                              key={st.key}
+                              title={st.label}
+                              className={`min-w-[38px] rounded-md px-1.5 py-1 text-center ${st.box}`}
+                            >
+                              <div className="text-sm font-semibold leading-none">
+                                {c.totals?.[st.key] ?? 0}
+                              </div>
+                              <div className={`mt-0.5 text-[9px] uppercase leading-none ${st.text}`}>
+                                {st.short}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </Link>
+                    ))}
                   </div>
-                </Link>
-              ))}
+
+                  {liveCampaigns.length > CAMPAIGNS_COLLAPSED && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="w-full text-muted-foreground"
+                      onClick={() => setShowAllCampaigns((v) => !v)}
+                    >
+                      {showAllCampaigns
+                        ? "Show less"
+                        : `Show ${liveCampaigns.length - CAMPAIGNS_COLLAPSED} more`}
+                      <ChevronDown
+                        className={`size-3 transition-transform ${showAllCampaigns ? "rotate-180" : ""}`}
+                      />
+                    </Button>
+                  )}
+                </>
+              )}
             </CardContent>
           </Card>
 

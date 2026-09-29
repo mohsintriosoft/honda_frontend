@@ -221,24 +221,24 @@ export default function CampaignsPage() {
                       </div>
 
                       {canEdit && (
-                      <Button
-                        variant={c.is_active ? "outline" : "default"}
-                        size="sm"
-                        disabled={togglingIds.has(c.id)}
-                        onClick={(e) => toggleCampaign(e, c)}
-                      >
-                        {c.is_active ? (
-                          <>
-                            <Pause className="size-4" />
-                            {togglingIds.has(c.id) ? "Pausing…" : "Pause"}
-                          </>
-                        ) : (
-                          <>
-                            <Play className="size-4" />
-                            {togglingIds.has(c.id) ? "Resuming…" : "Resume"}
-                          </>
-                        )}
-                      </Button>
+                        <Button
+                          variant={c.is_active ? "outline" : "default"}
+                          size="sm"
+                          disabled={togglingIds.has(c.id)}
+                          onClick={(e) => toggleCampaign(e, c)}
+                        >
+                          {c.is_active ? (
+                            <>
+                              <Pause className="size-4" />
+                              {togglingIds.has(c.id) ? "Pausing…" : "Pause"}
+                            </>
+                          ) : (
+                            <>
+                              <Play className="size-4" />
+                              {togglingIds.has(c.id) ? "Resuming…" : "Resume"}
+                            </>
+                          )}
+                        </Button>
                       )}
                     </div>
 
@@ -297,9 +297,8 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
       <div className="text-[11px] uppercase text-muted-foreground tracking-wide">{label}</div>
 
       <div
-        className={`text-base font-semibold font-display tabular-nums ${
-          highlight ? "text-primary" : ""
-        }`}
+        className={`text-base font-semibold font-display tabular-nums ${highlight ? "text-primary" : ""
+          }`}
       >
         {value}
       </div>

@@ -52,7 +52,6 @@ interface IntentTurnRow {
   correctIntent: string;
   confidence: number;
   fillerUsed: string;
-  suggestedFiller: string;
   match: boolean;
   timestamp: string;
 }
@@ -108,7 +107,6 @@ function mapTurn(row: any): IntentTurnRow {
     correctIntent: row.correct_intent,
     confidence: row.confidence,
     fillerUsed: row.filler_used,
-    suggestedFiller: row.suggested_filler,
     match: row.match,
     timestamp: row.timestamp,
   };
@@ -460,14 +458,6 @@ export default function IntentDetailsPage() {
 
                       <TableCell className="max-w-56">
                         <span className="text-xs text-muted-foreground">{t.fillerUsed}</span>
-                      </TableCell>
-
-                      <TableCell className="max-w-56">
-                        {t.match ? (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        ) : (
-                          <span className="text-xs">{t.suggestedFiller}</span>
-                        )}
                       </TableCell>
 
                       <TableCell>

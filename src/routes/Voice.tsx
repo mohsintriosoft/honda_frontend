@@ -191,33 +191,61 @@ export default function VoicePage() {
   );
 }
 
+type LiveSource = "user" | "bot";
+type Lane = { cursor: number };
+
+// Jitter buffer per lane: how far ahead of "now" playback is scheduled after the
+// lane starts or runs dry. Bigger = smoother but more delay behind the live call.
+const LIVE_JITTER_S: Record<LiveSource, number> = {
+  user: 0.25, // continuous real-time stream -> needs a cushion against network jitter
+  bot: 0.12, // TTS arrives in bursts, already ahead of real time
+};
+// If a lane falls further behind live than this, skip frames to catch up.
+// Bot audio arrives faster than real time (a whole sentence at once), so it must
+// never be dropped -- only the real-time user lane is capped.
+const LIVE_MAX_LAG_S: Record<LiveSource, number> = {
+  user: 1.5,
+  bot: Infinity,
+};
+
 function scheduleLivePcmFrame(
   ctx: AudioContext,
-  cursors: { user: number; bot: number },
-  source: "user" | "bot",
+  lanes: Record<LiveSource, Lane>,
+  source: LiveSource,
   sampleRate: number,
   base64Payload: string,
 ) {
   const binary = atob(base64Payload);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  // PCM16 = 2 bytes/sample; drop a stray odd byte instead of throwing away the frame.
+  const byteLen = binary.length - (binary.length % 2);
+  if (byteLen === 0) return;
+
+  const bytes = new Uint8Array(byteLen);
+  for (let i = 0; i < byteLen; i++) bytes[i] = binary.charCodeAt(i);
 
   const int16 = new Int16Array(bytes.buffer);
   const float32 = new Float32Array(int16.length);
   for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
 
-  if (float32.length === 0) return;
-
   const buffer = ctx.createBuffer(1, float32.length, sampleRate);
   buffer.getChannelData(0).set(float32);
+
+  const lane = lanes[source];
+  const now = ctx.currentTime;
+
+  if (lane.cursor < now + 0.005) {
+    // First frame, or the lane ran dry: restart with a cushion so the next
+    // frames land back-to-back instead of each one starting the moment it arrives.
+    lane.cursor = now + LIVE_JITTER_S[source];
+  } else if (lane.cursor - now > LIVE_MAX_LAG_S[source]) {
+    return; // too far behind live; skip until we've caught up
+  }
 
   const node = ctx.createBufferSource();
   node.buffer = buffer;
   node.connect(ctx.destination);
-
-  const startAt = Math.max(cursors[source], ctx.currentTime);
-  node.start(startAt);
-  cursors[source] = startAt + buffer.duration;
+  node.start(lane.cursor);
+  lane.cursor += buffer.duration;
 }
 
 function useLiveAudioListener(sessionId: string) {
@@ -227,7 +255,7 @@ function useLiveAudioListener(sessionId: string) {
 
   const wsRef = useRef<WebSocket | null>(null);
   const ctxRef = useRef<AudioContext | null>(null);
-  const cursorsRef = useRef({ user: 0, bot: 0 });
+  const lanesRef = useRef<Record<LiveSource, Lane>>({ user: { cursor: 0 }, bot: { cursor: 0 } });
 
   function stop() {
     wsRef.current?.close();
@@ -244,7 +272,8 @@ function useLiveAudioListener(sessionId: string) {
 
     const ctx = new AudioContext();
     ctxRef.current = ctx;
-    cursorsRef.current = { user: ctx.currentTime, bot: ctx.currentTime };
+    lanesRef.current = { user: { cursor: 0 }, bot: { cursor: 0 } };
+    void ctx.resume(); // start() runs from a click, so this is allowed
 
     const ws = new WebSocket(getListenWsUrl2(sessionId));
     wsRef.current = ws;
@@ -271,7 +300,7 @@ function useLiveAudioListener(sessionId: string) {
       try {
         const { source, sample_rate, payload } = JSON.parse(evt.data);
         if (ctxRef.current && (source === "user" || source === "bot")) {
-          scheduleLivePcmFrame(ctxRef.current, cursorsRef.current, source, sample_rate, payload);
+          scheduleLivePcmFrame(ctxRef.current, lanesRef.current, source, sample_rate, payload);
         }
       } catch (err) {
         console.error("Bad live audio frame:", err);

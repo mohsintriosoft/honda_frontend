@@ -527,7 +527,7 @@ function AgentDetailContent({
                 <div className="space-y-6">
                   <h3 className="text-base font-semibold">Behaviour</h3>
 
-                  <div className="space-y-1.5">
+                  {/* <div className="space-y-1.5">
                     <Label>Tone</Label>
                     <select
                       className="w-full h-9 rounded-md border px-3 text-sm bg-background"
@@ -540,7 +540,7 @@ function AgentDetailContent({
                         </option>
                       ))}
                     </select>
-                  </div>
+                  </div> */}
 
                   {[
                     { label: "Pace (slow → fast)", value: pace, setValue: setPace },
