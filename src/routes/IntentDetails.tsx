@@ -377,7 +377,6 @@ export default function IntentDetailsPage() {
                     <TableHead>Correct intent</TableHead>
                     <TableHead>Confidence</TableHead>
                     <TableHead>Filler used</TableHead>
-                    <TableHead>Suggested filler</TableHead>
                     <TableHead>Result</TableHead>
                     <TableHead>When</TableHead>
                   </TableRow>
