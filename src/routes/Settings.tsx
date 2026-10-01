@@ -700,7 +700,7 @@ function CompanyTab({ ws, onSaved }: { ws: Workspace; onSaved: (w: Workspace) =>
 const LIMIT_GROUPS: {
   title: string;
   fields: {
-    key: keyof Workspace["limits"];
+    key: keyof LimitsForm;
     label: string;
     help: string;
     suffix: string;
@@ -742,71 +742,117 @@ const LIMIT_GROUPS: {
     },
   ];
 
+type LimitsForm = Omit<Workspace["limits"], "call_scheduler_hour" | "call_scheduler_minute">;
+type SchedulerForm = Pick<Workspace["limits"], "call_scheduler_hour" | "call_scheduler_minute">;
+
 function CallingTab({ ws, onSaved }: { ws: Workspace; onSaved: (w: Workspace) => void }) {
-  const s = useSectionForm(ws.limits);
-  const time = `${pad2(s.form.call_scheduler_hour)}:${pad2(s.form.call_scheduler_minute)}`;
+  // Each card tracks and saves only its own fields. `initial` must be a stable
+  // reference (useMemo), otherwise useSectionForm would reset on every render.
+  const limitsInitial = useMemo<LimitsForm>(
+    () => ({
+      max_concurrent_calls: ws.limits.max_concurrent_calls,
+      daily_call_budget: ws.limits.daily_call_budget,
+      min_days_between_calls: ws.limits.min_days_between_calls,
+      max_calls_per_customer_month: ws.limits.max_calls_per_customer_month,
+    }),
+    [
+      ws.limits.max_concurrent_calls,
+      ws.limits.daily_call_budget,
+      ws.limits.min_days_between_calls,
+      ws.limits.max_calls_per_customer_month,
+    ],
+  );
+  const schedulerInitial = useMemo<SchedulerForm>(
+    () => ({
+      call_scheduler_hour: ws.limits.call_scheduler_hour,
+      call_scheduler_minute: ws.limits.call_scheduler_minute,
+    }),
+    [ws.limits.call_scheduler_hour, ws.limits.call_scheduler_minute],
+  );
+
+  const limits = useSectionForm(limitsInitial);
+  const scheduler = useSectionForm(schedulerInitial);
+  const time = `${pad2(scheduler.form.call_scheduler_hour)}:${pad2(scheduler.form.call_scheduler_minute)}`;
+
+  // Merge onto the last-saved limits so the other card's unsaved edits are never sent.
+  const patchLimits = async (part: Partial<Workspace["limits"]>) => {
+    const res = await server_patch_data(patch_workspace_settings, {
+      limits: { ...ws.limits, ...part },
+    });
+    if (!res?.success) throw { response: { data: res } };
+    onSaved(res);
+  };
 
   return (
-    <Section
-      icon={PhoneCall}
-      title="Calling Settings"
-      description="Guard rails for the dialer and the daily call queue."
-      footer={
-        <SaveRow
-          onSave={() =>
-            s.save(async (form) => {
-              const res = await server_patch_data(patch_workspace_settings, { limits: form });
-              if (!res?.success) throw { response: { data: res } };
-              onSaved(res);
-            })
-          }
-          onDiscard={s.reset}
-          saving={s.saving}
-          dirty={s.dirty}
-          saved={s.saved}
-          error={s.error}
-        />
-      }
-    >
-      <div className="space-y-6">
-        {LIMIT_GROUPS.map((group, i) => (
-          <div key={group.title} className={i > 0 ? "border-t pt-6" : ""}>
-            <SubHeading>{group.title}</SubHeading>
-            <div className="grid gap-4 md:grid-cols-2">
-              {group.fields.map((f) => (
-                <Field key={f.key} label={f.label} hint={f.help}>
-                  <NumberField
-                    value={s.form[f.key]}
-                    onChange={(n) => s.set(f.key, n)}
-                    suffix={f.suffix}
-                  />
-                </Field>
-              ))}
+    <div className="space-y-6">
+      <Section
+        icon={PhoneCall}
+        title="Calling Settings"
+        description="Guard rails for the dialer and the daily call queue."
+        footer={
+          <SaveRow
+            onSave={() => limits.save((form) => patchLimits(form))}
+            onDiscard={limits.reset}
+            saving={limits.saving}
+            dirty={limits.dirty}
+            saved={limits.saved}
+            error={limits.error}
+          />
+        }
+      >
+        <div className="space-y-6">
+          {LIMIT_GROUPS.map((group, i) => (
+            <div key={group.title} className={i > 0 ? "border-t pt-6" : ""}>
+              <SubHeading>{group.title}</SubHeading>
+              <div className="grid gap-4 md:grid-cols-2">
+                {group.fields.map((f) => (
+                  <Field key={f.key} label={f.label} hint={f.help}>
+                    <NumberField
+                      value={limits.form[f.key]}
+                      onChange={(n) => limits.set(f.key, n)}
+                      suffix={f.suffix}
+                    />
+                  </Field>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
-
-        <div className="border-t pt-6">
-          <SubHeading>Scheduler</SubHeading>
-          <Field
-            label="Daily call-list build time"
-            hint="When the scheduler builds the day's call queue from imported lists."
-            className="md:max-w-xs"
-          >
-            <IconInput
-              icon={CalendarClock}
-              type="time"
-              value={time}
-              onChange={(e) => {
-                const [hh, mm] = e.target.value.split(":").map(Number);
-                s.set("call_scheduler_hour", hh || 0);
-                s.set("call_scheduler_minute", mm || 0);
-              }}
-            />
-          </Field>
+          ))}
         </div>
-      </div>
-    </Section>
+      </Section>
+
+      <Section
+        icon={CalendarClock}
+        title="Scheduler"
+        description="When the daily call queue gets built."
+        footer={
+          <SaveRow
+            onSave={() => scheduler.save((form) => patchLimits(form))}
+            onDiscard={scheduler.reset}
+            saving={scheduler.saving}
+            dirty={scheduler.dirty}
+            saved={scheduler.saved}
+            error={scheduler.error}
+          />
+        }
+      >
+        <Field
+          label="Daily call-list build time"
+          hint="When the scheduler builds the day's call queue from imported lists."
+          className="md:max-w-xs"
+        >
+          <IconInput
+            icon={CalendarClock}
+            type="time"
+            value={time}
+            onChange={(e) => {
+              const [hh, mm] = e.target.value.split(":").map(Number);
+              scheduler.set("call_scheduler_hour", hh || 0);
+              scheduler.set("call_scheduler_minute", mm || 0);
+            }}
+          />
+        </Field>
+      </Section>
+    </div>
   );
 }
 

@@ -20,7 +20,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Search, Download, Loader2, CheckCircle2, XCircle, PhoneCall, ChevronLeft, ChevronRight } from "lucide-react";
 
 import { initials, formatRelative } from "@/lib/format";
-import { get_intent_summary, get_intent_turns, server_get_data } from "@/components/ServiceConnection/serviceconnection";
+import { get_intent_summary, get_intent_turns, server_get_data, getStaffUser } from "@/components/ServiceConnection/serviceconnection";
 
 const MATCH_STYLE = "bg-[color:var(--success)]/12 text-[color:var(--success)] border-[color:var(--success)]/30";
 const MISMATCH_STYLE = "bg-destructive/10 text-destructive border-destructive/30";
@@ -186,6 +186,8 @@ export default function IntentDetailsPage() {
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
 
+  const canExport = !!getStaffUser()?.can_export_intents;
+
   const handleExport = async () => {
     if (!id || exporting) return;
     setExporting(true);
@@ -201,6 +203,7 @@ export default function IntentDetailsPage() {
           search: q || undefined,
           page: p,
           page_size: EXPORT_PAGE_SIZE,
+          export: 1,
         });
         const batch = (res?.results ?? []).map(mapTurn);
         total = res?.count ?? 0;
@@ -338,18 +341,15 @@ export default function IntentDetailsPage() {
         description={summary?.description ?? ""}
         breadcrumbs={[{ label: "Intents", to: "/intents" }, { label: headerLabel }]}
         actions={
-          <div className="flex items-center gap-2">
-            {exportError && <span className="text-xs text-destructive">{exportError}</span>}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleExport}
-              disabled={exporting || turnsCount === 0}
-            >
-              {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-              {exporting ? "Exporting…" : "Export"}
-            </Button>
-          </div>
+          canExport ? (
+            <div className="flex items-center gap-2">
+              {exportError && <span className="text-xs text-destructive">{exportError}</span>}
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting || turnsCount === 0}>
+                {exporting ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+                {exporting ? "Exporting…" : "Export"}
+              </Button>
+            </div>
+          ) : undefined
         }
       />
 

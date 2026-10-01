@@ -85,6 +85,15 @@ interface CsvStatsRow {
   created_at: string | null;
 }
 
+interface CallWindow {
+  as_of: string;
+  queue_entries: number;
+  distinct_customers: number;
+  repeat_customer_rows: number;
+  outside_window: number;
+  expected_calls: number;
+}
+
 interface ServicePreview {
   total_rows: number;
   list_type: string;
@@ -94,6 +103,7 @@ interface ServicePreview {
   missed_service_column_present: boolean;
   missed_service_count: number;
   missed_service_warning: string | null;
+  call_window?: CallWindow | null;
   reconciles: boolean;
 }
 
@@ -194,10 +204,12 @@ function StatCell({
   label,
   value,
   tone,
+  hint,
 }: {
   label: string;
   value: string | number;
   tone?: "warn" | "bad" | "good";
+  hint?: string;
 }) {
   return (
     <div className="flex flex-col gap-1 rounded-lg border bg-card px-4 py-3">
@@ -212,6 +224,48 @@ function StatCell({
       >
         {value}
       </span>
+      {hint && <span className="text-[11px] leading-snug text-muted-foreground">{hint}</span>}
+    </div>
+  );
+}
+
+/* Two extra cards + the "what will really be called" total. Numbers come from
+   the backend (call_window) so they follow the scheduler's own rules. */
+function CallWindowCards({ cw }: { cw: CallWindow }) {
+  const n = (v: number) => num(v).toLocaleString();
+  return (
+    <div className="space-y-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+        <StatCell
+          label="Distinct customers"
+          value={n(cw.distinct_customers)}
+          hint={
+            cw.repeat_customer_rows > 0
+              ? `${n(cw.repeat_customer_rows)} more row(s) belong to a customer already counted`
+              : "No customer appears twice"
+          }
+        />
+        <StatCell
+          label="Outside call window"
+          value={n(cw.outside_window)}
+          tone={cw.outside_window ? "warn" : undefined}
+          hint="Every row for them is due too far from today"
+        />
+      </div>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/30 px-4 py-2.5 text-sm">
+        <span className="text-muted-foreground">Expected to be called:</span>
+        <span className="text-base font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+          {n(cw.expected_calls)}
+        </span>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          = {n(cw.queue_entries)} queued − {n(cw.repeat_customer_rows)} repeat-customer rows −{" "}
+          {n(cw.outside_window)} outside call window
+        </span>
+      </div>
+      <p className="text-[11px] text-muted-foreground">
+        As of {cw.as_of} — the call window moves every day. Customers on the do-not-call list or
+        over the monthly call cap are not counted here.
+      </p>
     </div>
   );
 }
@@ -767,6 +821,10 @@ export default function ImportDetails() {
           />
         </div>
 
+        {preview && !preview.error && isServicePreview(preview) && preview.call_window && (
+          <CallWindowCards cw={preview.call_window} />
+        )}
+
         {/* Preview / reconciliation detail */}
         {preview && !preview.error && (
           <Card>
@@ -795,9 +853,8 @@ export default function ImportDetails() {
                       return (
                         <div
                           key={name}
-                          className={`rounded-md border px-3 py-2 ${
-                            missingCampaign ? "border-amber-500/40 bg-amber-500/5" : "bg-muted/30"
-                          }`}
+                          className={`rounded-md border px-3 py-2 ${missingCampaign ? "border-amber-500/40 bg-amber-500/5" : "bg-muted/30"
+                            }`}
                         >
                           <div className="text-xs text-muted-foreground flex items-center gap-1">
                             {name}
@@ -853,11 +910,10 @@ export default function ImportDetails() {
                     </div>
                   </div>
                   <div
-                    className={`rounded-md border px-3 py-2 ${
-                      preview.segment_configured && !preview.campaign_linked
+                    className={`rounded-md border px-3 py-2 ${preview.segment_configured && !preview.campaign_linked
                         ? "border-amber-500/40 bg-amber-500/5"
                         : "bg-muted/30"
-                    }`}
+                      }`}
                   >
                     <div className="text-xs text-muted-foreground">Campaign linked</div>
                     <div className="text-sm font-medium">

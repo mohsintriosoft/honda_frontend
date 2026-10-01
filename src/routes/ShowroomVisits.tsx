@@ -277,6 +277,10 @@ function ImportsTab({
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [reportDate, setReportDate] = useState("");
+  const [sheetNames, setSheetNames] = useState<string[]>([]);
+  const [sheet, setSheet] = useState("");
+  const [readingSheets, setReadingSheets] = useState(false);
+  const pickedFile = useRef<File | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const started = useRef<Set<number>>(new Set());
 
@@ -327,21 +331,50 @@ function ImportsTab({
     }
     setError(null);
     setFile(f);
+    setSheetNames([]);
+    setSheet("");
+    pickedFile.current = f;
+    void readSheets(f);
+  }
+
+  // Ask the server which sheets the workbook has (nothing is imported yet).
+  async function readSheets(f: File) {
+    setReadingSheets(true);
+    try {
+      const res = await server_upload_file(post_visit_upload, f, "file", { list_sheets: "1" });
+      if (pickedFile.current !== f) return; // user picked another file meanwhile
+      if (!res?.success) throw { response: { data: res } };
+      const names: string[] = res.sheets ?? [];
+      setSheetNames(names);
+      if (names.length === 1) setSheet(names[0]); // only one: nothing to choose
+    } catch (err) {
+      if (pickedFile.current === f) setError(apiError(err, "Couldn't read the sheets in this file."));
+    } finally {
+      if (pickedFile.current === f) setReadingSheets(false);
+    }
   }
 
   function clearFile() {
+    pickedFile.current = null;
     setFile(null);
+    setSheetNames([]);
+    setSheet("");
+    setReadingSheets(false);
     if (fileInput.current) fileInput.current.value = "";
   }
 
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  const canUpload = !!file && !uploading && !readingSheets && !!reportDate && !!sheet;
+
   async function upload() {
-    if (!file || uploading) return;
+    if (!file || uploading || !reportDate || !sheet) return;
     setUploading(true);
     setError(null);
     setNotice(null);
     try {
-      const extra: Record<string, string> = {};
-      if (reportDate) extra.report_date = reportDate;
+      // The chosen date is the day these customers visited for service.
+      const extra: Record<string, string> = { report_date: reportDate, sheets: sheet };
       const res = await server_upload_file(post_visit_upload, file, "file", extra);
       if (!res?.success) throw { response: { data: res } };
       if (res.warning) setNotice(res.warning);
@@ -424,8 +457,8 @@ function ImportsTab({
                   {dragging ? "Drop the file to select it" : "Drag the CRE daily file here, or click to browse"}
                 </div>
                 <div className="text-xs text-muted-foreground">
-                  .xlsx or .xlsm, up to {MAX_UPLOAD_MB} MB. Every customer in the file is counted as arrived, and one
-                  sheet per day is read automatically.
+                  .xlsx or .xlsm, up to {MAX_UPLOAD_MB} MB. Every customer in the file is counted as arrived. You choose
+                  the visit date, and the sheet if the file has more than one.
                 </div>
               </div>
             ) : (
@@ -437,7 +470,7 @@ function ImportsTab({
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{file.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      {fileSize(file.size)} · ready to upload
+                      {fileSize(file.size)} · {readingSheets ? "reading sheets…" : "ready to upload"}
                     </div>
                   </div>
                   <Button
@@ -452,27 +485,58 @@ function ImportsTab({
                 </div>
 
                 <div className="flex flex-wrap items-end justify-between gap-3">
-                  {/* <div className="space-y-1">
-                    <label htmlFor="visit-report-date" className="text-xs text-muted-foreground">
-                      Report date <span className="opacity-70">(optional)</span>
-                    </label>
-                    <Input
-                      id="visit-report-date"
-                      type="date"
-                      className="w-44"
-                      value={reportDate}
-                      onChange={(e) => setReportDate(e.target.value)}
-                      disabled={uploading}
-                    />
-                    <p className="max-w-xs text-[11px] text-muted-foreground">
-                      Leave empty to read the date from the sheet name. Ignored for files with more than one sheet.
-                    </p>
-                  </div> */}
+                  <div className="flex flex-wrap items-start gap-4">
+                    {sheetNames.length > 1 && (
+                      <div className="space-y-1">
+                        <label className="text-xs text-muted-foreground">
+                          Sheet <span className="text-destructive">*</span>
+                        </label>
+                        <Select value={sheet} onValueChange={setSheet} disabled={uploading}>
+                          <SelectTrigger className="w-56">
+                            <SelectValue placeholder="Choose a sheet" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {sheetNames.map((n) => (
+                              <SelectItem key={n} value={n}>
+                                {n}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="max-w-xs text-[11px] text-muted-foreground">
+                          This file has {sheetNames.length} sheets. Only the one you pick is imported.
+                        </p>
+                      </div>
+                    )}
+                    {sheetNames.length === 1 && (
+                      <div className="space-y-1">
+                        <div className="text-xs text-muted-foreground">Sheet</div>
+                        <div className="flex h-9 items-center text-sm">{sheetNames[0]}</div>
+                      </div>
+                    )}
+                    <div className="space-y-1">
+                      <label htmlFor="visit-report-date" className="text-xs text-muted-foreground">
+                        Visit date <span className="text-destructive">*</span>
+                      </label>
+                      <Input
+                        id="visit-report-date"
+                        type="date"
+                        className="w-44"
+                        max={todayStr}
+                        value={reportDate}
+                        onChange={(e) => setReportDate(e.target.value)}
+                        disabled={uploading}
+                      />
+                      <p className="max-w-xs text-[11px] text-muted-foreground">
+                        The day these customers came in for service. Used as the arrival and service date.
+                      </p>
+                    </div>
+                  </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" onClick={clearFile} disabled={uploading}>
                       Cancel
                     </Button>
-                    <Button onClick={upload} disabled={uploading}>
+                    <Button onClick={upload} disabled={!canUpload}>
                       {uploading ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (

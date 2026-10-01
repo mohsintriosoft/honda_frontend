@@ -208,6 +208,64 @@ function ReconcileBadge({ row }: { row: CsvStatsRow }) {
 }
 
 /* =========================================================
+   SHEET NAMES  (read in the browser, no backend call, no library)
+   An .xlsx is a zip; the sheet list lives in xl/workbook.xml.
+========================================================= */
+
+type SheetInfo = { name: string; hidden: boolean };
+
+async function inflateRaw(data: Uint8Array): Promise<Uint8Array> {
+    const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function readWorkbookSheets(file: File): Promise<SheetInfo[]> {
+    const buf = new Uint8Array(await file.arrayBuffer());
+    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+
+    // End-of-central-directory record
+    let eocd = -1;
+    for (let i = buf.length - 22; i >= Math.max(0, buf.length - 22 - 65535); i--) {
+        if (view.getUint32(i, true) === 0x06054b50) {
+            eocd = i;
+            break;
+        }
+    }
+    if (eocd < 0) throw new Error("Not a zip file");
+
+    const entries = view.getUint16(eocd + 10, true);
+    let p = view.getUint32(eocd + 16, true);
+    const text = new TextDecoder();
+
+    for (let n = 0; n < entries; n++) {
+        if (view.getUint32(p, true) !== 0x02014b50) break;
+        const method = view.getUint16(p + 10, true);
+        const compSize = view.getUint32(p + 20, true);
+        const nameLen = view.getUint16(p + 28, true);
+        const extraLen = view.getUint16(p + 30, true);
+        const commentLen = view.getUint16(p + 32, true);
+        const localOffset = view.getUint32(p + 42, true);
+        const entryName = text.decode(buf.subarray(p + 46, p + 46 + nameLen));
+
+        if (entryName === "xl/workbook.xml") {
+            const dataStart = localOffset + 30 + view.getUint16(localOffset + 26, true) + view.getUint16(localOffset + 28, true);
+            const raw = buf.subarray(dataStart, dataStart + compSize);
+            if (method !== 0 && method !== 8) throw new Error("Unsupported compression");
+            const xml = method === 0 ? raw : await inflateRaw(raw);
+            const doc = new DOMParser().parseFromString(text.decode(xml), "application/xml");
+            return Array.from(doc.getElementsByTagNameNS("*", "sheet"))
+                .map((el) => ({
+                    name: el.getAttribute("name") ?? "",
+                    hidden: (el.getAttribute("state") ?? "visible") !== "visible",
+                }))
+                .filter((sh) => sh.name);
+        }
+        p += 46 + nameLen + extraLen + commentLen;
+    }
+    throw new Error("workbook.xml not found");
+}
+
+/* =========================================================
    UPLOAD DIALOG
 ========================================================= */
 
@@ -223,23 +281,57 @@ function UploadDialog({
     const [listType, setListType] = useState<ListType>("service");
     const [sheetName, setSheetName] = useState<string>("");
     const [file, setFile] = useState<File | null>(null);
+    // null = not an Excel file / could not be read; [] never happens (filtered)
+    const [sheets, setSheets] = useState<SheetInfo[] | null>(null);
+    const [readingSheets, setReadingSheets] = useState(false);
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const pickedFile = useRef<File | null>(null);
 
     const reset = () => {
         setBranchId("");
         setListType("service");
         setSheetName("");
         setFile(null);
+        setSheets(null);
+        setReadingSheets(false);
+        pickedFile.current = null;
         setError(null);
         if (fileInputRef.current) fileInputRef.current.value = "";
     };
 
-    const canSubmit = Boolean(branchId) && Boolean(file) && !submitting;
+    const handleFilePicked = async (f: File | null) => {
+        pickedFile.current = f;
+        setFile(f);
+        setSheetName("");
+        setSheets(null);
+        setError(null);
+        if (!f || !/\.(xlsx|xlsm)$/i.test(f.name)) return; // csv: no sheets
+        setReadingSheets(true);
+        try {
+            const found = await readWorkbookSheets(f);
+            if (pickedFile.current !== f) return; // another file was picked meanwhile
+            setSheets(found);
+            if (found.length === 1) setSheetName(found[0].name);
+        } catch {
+            // Couldn't read the sheet list: fall back to the typed sheet name.
+            if (pickedFile.current === f) setSheets(null);
+        } finally {
+            if (pickedFile.current === f) setReadingSheets(false);
+        }
+    };
+
+    const multiSheet = (sheets?.length ?? 0) > 1;
+    const canSubmit =
+        Boolean(branchId) && Boolean(file) && !submitting && !readingSheets && (!multiSheet || Boolean(sheetName));
 
     const handleSubmit = async () => {
         if (!file || !branchId) return;
+        if (multiSheet && !sheetName) {
+            setError("This file has more than one sheet. Choose the sheet to import.");
+            return;
+        }
         if (!/\.(xlsx|xlsm|csv)$/i.test(file.name)) {
             setError("Only .xlsx, .xlsm or .csv files are supported. Save an old .xls file as .xlsx first.");
             return;
@@ -250,7 +342,9 @@ function UploadDialog({
             const res = await server_upload_file(post_import_upload, file, "file", {
                 branch_id: branchId,
                 list_type: listType,
-                sheet_name: sheetName.trim() || undefined,
+                // A sheet picked from the list is sent exactly as named (names can
+                // have trailing spaces); only a typed name is trimmed.
+                sheet_name: (sheets ? sheetName : sheetName.trim()) || undefined,
             });
             if (!res?.success) throw { response: { data: res } };
             onUploaded(res.import as CsvStatsRow);
@@ -323,32 +417,72 @@ function UploadDialog({
                     </div>
 
                     <div className="space-y-1.5">
-                        <Label htmlFor="sheet">Sheet name (optional)</Label>
-                        <Input
-                            id="sheet"
-                            placeholder="e.g. SEPTEMBER 2026"
-                            value={sheetName}
-                            onChange={(e) => setSheetName(e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Month covered is detected automatically from the file once it's parsed.
-                        </p>
-                    </div>
-
-                    <div className="space-y-1.5">
                         <Label htmlFor="file">File</Label>
                         <Input
                             id="file"
                             ref={fileInputRef}
                             type="file"
                             accept=".xlsx,.xlsm,.csv"
-                            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                            onChange={(e) => handleFilePicked(e.target.files?.[0] ?? null)}
                         />
                         <p className="text-xs text-muted-foreground">
                             .xlsx, .xlsm or .csv. Column names can vary month to
                             month — they're matched by alias, not position.
                         </p>
                     </div>
+
+                    {readingSheets && (
+                        <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Loader2 className="size-3.5 animate-spin" /> Reading the sheets in this file…
+                        </p>
+                    )}
+
+                    {multiSheet && (
+                        <div className="space-y-1.5">
+                            <Label htmlFor="sheet">
+                                Sheet to import <span className="text-destructive">*</span>
+                            </Label>
+                            <Select value={sheetName} onValueChange={setSheetName} disabled={submitting}>
+                                <SelectTrigger id="sheet">
+                                    <SelectValue placeholder="Choose a sheet" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {sheets!.map((sh) => (
+                                        <SelectItem key={sh.name} value={sh.name}>
+                                            {sh.name}
+                                            {sh.hidden ? " (hidden)" : ""}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                                This file has {sheets!.length} sheets, and each can hold a different month. Only
+                                the sheet you pick is imported.
+                            </p>
+                        </div>
+                    )}
+
+                    {sheets?.length === 1 && (
+                        <p className="text-xs text-muted-foreground">
+                            Sheet: <span className="font-medium text-foreground">{sheets[0].name}</span>
+                        </p>
+                    )}
+
+                    {/* The sheet list couldn't be read from this Excel file: let them type it. */}
+                    {file && !readingSheets && sheets === null && /\.(xlsx|xlsm)$/i.test(file.name) && (
+                        <div className="space-y-1.5">
+                            <Label htmlFor="sheet-manual">Sheet name (optional)</Label>
+                            <Input
+                                id="sheet-manual"
+                                placeholder="e.g. SEPTEMBER 2026"
+                                value={sheetName}
+                                onChange={(e) => setSheetName(e.target.value)}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                Couldn't read the sheet list from this file. Leave empty to use the default sheet.
+                            </p>
+                        </div>
+                    )}
 
                     {listType === "service" && (
                         <Alert className="border-amber-500/30 bg-amber-500/5">
