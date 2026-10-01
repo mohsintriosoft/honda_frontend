@@ -48,8 +48,8 @@ import Analytics from "./routes/Analytics";
 import OmHondaChunks from "./routes/omhondachunks";
 
 
-import WhatsApp from "./routes/_app.whatsapp.index";
-import Integrations from "./routes/_app.integrations.index";
+// import WhatsApp from "./routes/_app.whatsapp.index";
+// import Integrations from "./routes/_app.integrations.index";
 
 function AppLayout({ forbidden = false }: { forbidden?: boolean }) {
   return (
@@ -201,7 +201,7 @@ export default function App() {
           <Route path="/imports/:id" element={<ImportDetails />} />
 
           {/* ================= INTEGRATIONS ================= */}
-          <Route path="/integrations" element={<Integrations />} />
+          {/* <Route path="/integrations" element={<Integrations />} /> */}
 
           {/* ================= INTENTS ================= */}
           <Route path="/intents" element={<Intents />} />
@@ -224,7 +224,7 @@ export default function App() {
           <Route path="/voice" element={<Voice />} />
 
           {/* ================= WHATSAPP ================= */}
-          <Route path="/whatsapp" element={<WhatsApp />} />
+          {/* <Route path="/whatsapp" element={<WhatsApp />} /> */}
 
           {/* ================= HEALTH ================= */}
           <Route path="/health" element={<Health />} />

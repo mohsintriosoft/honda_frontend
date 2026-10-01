@@ -45,7 +45,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/fillers", label: "Fillers", icon: MessageSquareText },
   { to: "/knowledge", label: "Knowledge Base", icon: BookOpen, keywords: "kb documents rag" },
   { to: "/voice", label: "AI Voice Calls", icon: PhoneCall, keywords: "live calls dial" },
-  { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare },
+  // { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare },
   { to: "/appointments", label: "Appointments", icon: CalendarDays, keywords: "bookings slots calendar" },
   { to: "/visits", label: "Showroom Visits", icon: Store, keywords: "cre visit reconciliation" },
   { to: "/callbacks", label: "Callbacks", icon: PhoneForwarded },
@@ -56,7 +56,7 @@ export const NAV_ITEMS: NavItem[] = [
 ];
 
 export const SECONDARY_NAV_ITEMS: NavItem[] = [
-  { to: "/integrations", label: "Integrations", icon: Plug },
+  // { to: "/integrations", label: "Integrations", icon: Plug },
   { to: "/users", label: "Users", icon: Shield, keywords: "roles rights staff" },
   { to: "/settings", label: "Settings", icon: Settings, keywords: "profile password company" },
 ];

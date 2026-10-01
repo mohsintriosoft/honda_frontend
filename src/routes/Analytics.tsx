@@ -68,6 +68,8 @@ type Kpis = {
   visits: number;
   arrivals?: number;
   cost: number;
+  cost_per_call: number | null;
+  cost_per_connected_call: number | null;
   cost_per_booking: number | null;
 };
 
@@ -643,6 +645,23 @@ export default function AnalyticsPage() {
                 sub="LLM + speech + telephony"
                 delta={<Delta now={k.cost} before={p.cost} lowerIsBetter />}
               /> */}
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Kpi
+                label="Total call cost"
+                value={rupees(k.cost, 2)}
+                icon={<IndianRupee className="size-3.5" />}
+                // sub="LLM + speech + telephony"
+                delta={<Delta now={k.cost} before={p.cost} lowerIsBetter />}
+              />
+              <Kpi
+                label="Average cost per call"
+                value={rupees(k.cost_per_call, 2)}
+                icon={<Wallet className="size-3.5" />}
+                sub={`${rupees(k.cost_per_connected_call, 2)} per connected call`}
+                delta={<Delta now={k.cost_per_call} before={p.cost_per_call} lowerIsBetter />}
+              />
             </div>
 
             {data.workshop && data.workshop.arrivals > 0 && <WorkshopSection w={data.workshop} />}
