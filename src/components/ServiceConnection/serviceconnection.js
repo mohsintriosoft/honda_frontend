@@ -215,6 +215,11 @@ const visit_record_url = (id) => APL_LINK + `api/showroom-visits/records/${id}/`
 const get_visit_summary = APL_LINK + "api/showroom-visits/summary/";
 const get_nav_badges = APL_LINK + "api/nav-badges/";
 const get_global_search = APL_LINK + "api/search/";
+// UI rights (hide / disable any element per role) -- views_ui_rights.py
+const get_my_ui_rules = APL_LINK + "api/ui-rules/";
+const get_all_ui_rules = APL_LINK + "api/ui-rules/all/";
+const post_ui_rule = APL_LINK + "api/ui-rules/all/";
+const ui_rule_url = (id) => `${APL_LINK}api/ui-rules/${id}/`;
 const get_analytics = APL_LINK + "api/analytics/"
 /* =========================================================
    COMMON CONFIG
@@ -1054,4 +1059,8 @@ export {
   get_nav_badges,
   get_global_search,
   get_analytics,
+  get_my_ui_rules,
+  get_all_ui_rules,
+  post_ui_rule,
+  ui_rule_url,
 };

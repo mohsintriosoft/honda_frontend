@@ -2,6 +2,7 @@
 // PERMISSION_CATALOG (voice_bot/permissions.py) -- the backend is still the
 // real gate (403); this only hides what the user can't use.
 import { getStaffUser } from "@/components/ServiceConnection/serviceconnection";
+import { getUiRightsState } from "@/lib/uiRights";
 
 export type PermCode =
   | "dashboard.view"
@@ -27,6 +28,17 @@ export function getPermissions(): Set<string> | null {
   const user = getStaffUser();
   if (!user || !Array.isArray(user.permissions)) return null;
   return new Set<string>(user.permissions);
+}
+
+/**
+ * Super admin = the staff ids in the backend's settings.HEALTH_BALANCE_STAFF_IDS.
+ * Only they see and manage "Roles & rights" and "UI rights" (and the
+ * "Page rights" picker). Read from the login user (is_super_admin) or, for a
+ * session that logged in before this flag existed, from /api/ui-rules/.
+ */
+export function isSuperAdmin(): boolean {
+  const user = getStaffUser();
+  return user?.is_super_admin === true || getUiRightsState().canManage;
 }
 
 /** True if the user has ANY of the given rights (same rule as backend @require_perm). */
@@ -58,7 +70,7 @@ const ROUTE_PERMS: Record<string, PermCode[] | null> = {
   "/analytics": ["dashboard.view"],
   "/health": ["health.view"],
   "/integrations": ["settings.manage"],
-  "/users": ["users.view", "users.manage", "roles.manage"],
+  "/users": ["users.view", "users.manage"], // + super admins (see canAccessPath)
   "/settings": null,
 };
 
@@ -73,6 +85,7 @@ export function canAccessPath(path: string): boolean {
   const key = matchRoute(path);
   if (key === undefined) return true;
   const needed = ROUTE_PERMS[key];
+  if (key === "/users" && isSuperAdmin()) return true; // Roles & rights / UI rights
   return needed === null || hasPerm(...needed);
 }
 

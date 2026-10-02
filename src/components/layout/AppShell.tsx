@@ -25,6 +25,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { CommandPalette } from "./CommandPalette";
+import { UiRightsEnforcer } from "@/components/uirights/UiRightsEnforcer";
+import { UiRightsPicker } from "@/components/uirights/UiRightsPicker";
+import { clearUiRightsCache } from "@/lib/uiRights";
 import { NAV_ITEMS, SECONDARY_NAV_ITEMS, badgeLabel } from "./navItems";
 import {
   server_get_data,
@@ -131,6 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       await server_post_json(logout_user_email).catch(() => { });
     } finally {
       clearAuthSession();
+      clearUiRightsCache();
       setSigningOut(false);
       navigate("/login", { replace: true });
     }
@@ -384,6 +388,9 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} badges={badges} />
+      {/* screen-level user rights: applies hide/disable rules + admin picker */}
+      <UiRightsEnforcer />
+      <UiRightsPicker />
     </div>
   );
 }

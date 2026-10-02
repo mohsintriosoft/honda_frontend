@@ -47,7 +47,10 @@ import {
   getStaffUser,
   setAuthSession,
 } from "@/components/ServiceConnection/serviceconnection";
-import { hasPerm } from "@/lib/permissions";
+import { hasPerm, isSuperAdmin } from "@/lib/permissions";
+import { useUiRights } from "@/lib/uiRights";
+import { UiRightsTab } from "@/components/uirights/UiRightsTab";
+import { RolesRightsPanel } from "@/components/roles/RolesRightsPanel";
 
 // Keeps the stored login user's rights in step with the server, so the
 // sidebar/route guards update right after someone edits their own role.
@@ -116,11 +119,13 @@ const emptyInviteForm = {
   password: "",
 };
 
-const emptyRoleForm = { name: "", description: "", permissions: [] as string[] };
-
 export default function UsersPage() {
   // A roles-only admin can open this page but can't list users.
   const canViewUsers = hasPerm("users.view", "users.manage");
+  // Roles & rights + UI rights: super admins only (settings.HEALTH_BALANCE_STAFF_IDS).
+  // useUiRights() re-renders once /api/ui-rules/ confirms the flag.
+  const uiRightsState = useUiRights();
+  const superAdmin = isSuperAdmin() || uiRightsState.canManage;
 
   const [users, setUsers] = useState<StaffRow[] | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
@@ -139,23 +144,15 @@ export default function UsersPage() {
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const [roleDialogOpen, setRoleDialogOpen] = useState(false);
-  const [editingRole, setEditingRole] = useState<Role | null>(null);
-  const [roleForm, setRoleForm] = useState(emptyRoleForm);
-  const [roleError, setRoleError] = useState<string | null>(null);
-  const [roleSaving, setRoleSaving] = useState(false);
 
   const canManageUsers = myPerms.includes("users.manage");
-  const canManageRoles = myPerms.includes("roles.manage");
+  // The logged-in user's own row offers neither Manage nor Deactivate.
+  const currentUserId = getStaffUser()?.id;
+  const canManageRoles = superAdmin;
 
   const assignableRoles = useMemo(() => roles.filter((r) => r.assignable), [roles]);
   const roleName = (code: string) => roles.find((r) => r.code === code)?.name ?? code;
 
-  const catalogGroups = useMemo(() => {
-    const groups: Record<string, PermissionDef[]> = {};
-    for (const p of catalog) (groups[p.group] ??= []).push(p);
-    return Object.entries(groups);
-  }, [catalog]);
 
   async function loadAll() {
     setLoading(true);
@@ -279,71 +276,6 @@ export default function UsersPage() {
 
   /* ---------------- Roles ---------------- */
 
-  function openNewRole() {
-    setEditingRole(null);
-    setRoleForm(emptyRoleForm);
-    setRoleError(null);
-    setRoleDialogOpen(true);
-  }
-
-  function openEditRole(role: Role) {
-    setEditingRole(role);
-    setRoleForm({
-      name: role.name,
-      description: role.description,
-      permissions: [...role.permissions],
-    });
-    setRoleError(null);
-    setRoleDialogOpen(true);
-  }
-
-  function togglePermission(code: string) {
-    setRoleForm((f) => ({
-      ...f,
-      permissions: f.permissions.includes(code)
-        ? f.permissions.filter((p) => p !== code)
-        : [...f.permissions, code],
-    }));
-  }
-
-  async function handleRoleSave() {
-    setRoleError(null);
-    if (!roleForm.name.trim()) {
-      setRoleError("Role name is required.");
-      return;
-    }
-    setRoleSaving(true);
-    try {
-      const body = {
-        name: roleForm.name.trim(),
-        description: roleForm.description.trim(),
-        permissions: roleForm.permissions,
-      };
-      const res = editingRole
-        ? await server_patch_data(role_url(editingRole.id), body)
-        : await server_post_json(post_role, body);
-      if (res?.success === false || res?.error) throw { response: { data: res } };
-      setRoleDialogOpen(false);
-      await loadAll();
-    } catch (err: any) {
-      setRoleError(apiErrorMessage(err, "Couldn't save this role."));
-    } finally {
-      setRoleSaving(false);
-    }
-  }
-
-  async function handleRoleDelete(role: Role) {
-    if (!window.confirm(`Delete the role "${role.name}"?`)) return;
-    try {
-      const res = await server_delete_data(role_url(role.id));
-      if (res?.success === false) throw { response: { data: res } };
-      await loadAll();
-    } catch (err: any) {
-      setError(apiErrorMessage(err, "Couldn't delete this role."));
-    }
-  }
-
-  const ownerRoleForm = editingRole?.is_owner ?? false;
 
   return (
     <>
@@ -359,10 +291,11 @@ export default function UsersPage() {
           </div>
         )}
 
-        <Tabs defaultValue={canViewUsers ? "users" : "roles"}>
+        <Tabs defaultValue={canViewUsers ? "users" : superAdmin ? "roles" : "users"}>
           <TabsList>
             {canViewUsers && <TabsTrigger value="users">Users</TabsTrigger>}
-            <TabsTrigger value="roles">Roles & rights</TabsTrigger>
+            {superAdmin && <TabsTrigger value="roles">Roles & rights</TabsTrigger>}
+            {superAdmin && <TabsTrigger value="ui">UI rights</TabsTrigger>}
           </TabsList>
 
           {/* ---------------- USERS TAB ---------------- */}
@@ -431,11 +364,10 @@ export default function UsersPage() {
 
                             <TableCell>
                               <span
-                                className={`text-[10px] rounded-full px-2 py-0.5 ${
-                                  u.is_active
+                                className={`text-[10px] rounded-full px-2 py-0.5 ${u.is_active
                                     ? "bg-[color:var(--success)]/15 text-[color:var(--success)]"
                                     : "bg-[color:var(--warning)]/15 text-[color:var(--warning-foreground)]"
-                                }`}
+                                  }`}
                               >
                                 {u.is_active ? "Active" : "Deactivated"}
                               </span>
@@ -445,23 +377,27 @@ export default function UsersPage() {
                               <TableCell className="text-right">
                                 {editable && (
                                   <div className="flex justify-end gap-1">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => {
-                                        setEditError(null);
-                                        setEditTarget(u);
-                                      }}
-                                    >
-                                      Manage
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      onClick={() => handleToggleActive(u)}
-                                    >
-                                      {u.is_active ? "Deactivate" : "Reactivate"}
-                                    </Button>
+                                    {u.id !== currentUserId && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => {
+                                          setEditError(null);
+                                          setEditTarget(u);
+                                        }}
+                                      >
+                                        Manage
+                                      </Button>
+                                    )}
+                                    {u.id !== currentUserId && (
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => handleToggleActive(u)}
+                                      >
+                                        {u.is_active ? "Deactivate" : "Reactivate"}
+                                      </Button>
+                                    )}
                                   </div>
                                 )}
                               </TableCell>
@@ -488,100 +424,24 @@ export default function UsersPage() {
           </TabsContent>
 
           {/* ---------------- ROLES TAB ---------------- */}
-          <TabsContent value="roles" className="mt-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted-foreground">
-                Each role is a set of rights. Users get the rights of the role they're assigned.
-              </p>
-              {canManageRoles && (
-                <Button size="sm" onClick={openNewRole}>
-                  <Plus className="size-4" />
-                  New role
-                </Button>
-              )}
-            </div>
+          {superAdmin && (
+            <TabsContent value="roles" className="mt-4">
+              <RolesRightsPanel
+                roles={roles}
+                catalog={catalog}
+                myPerms={myPerms}
+                canManage={canManageRoles}
+                loading={loading}
+                onChanged={loadAll}
+              />
+            </TabsContent>
+          )}
 
-            <Card>
-              <CardContent className="p-0">
-                {loading ? (
-                  <div className="p-8 flex items-center justify-center gap-2 text-sm text-muted-foreground">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading roles…
-                  </div>
-                ) : roles.length === 0 ? (
-                  <div className="p-8 text-sm text-muted-foreground text-center">
-                    Roles can't be shown.
-                  </div>
-                ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Role</TableHead>
-                        <TableHead>Rights</TableHead>
-                        <TableHead>Users</TableHead>
-                        {canManageRoles && <TableHead />}
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {roles.map((r) => (
-                        <TableRow key={r.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <ShieldCheck className="size-4 text-muted-foreground" />
-                              <span className="font-medium text-sm">{r.name}</span>
-                              {r.is_system && (
-                                <Badge variant="secondary" className="text-[10px]">
-                                  System
-                                </Badge>
-                              )}
-                            </div>
-                            {r.description && (
-                              <div className="text-xs text-muted-foreground mt-0.5">
-                                {r.description}
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-sm">
-                            {r.is_owner
-                              ? "All rights"
-                              : `${r.permissions.length} of ${catalog.length}`}
-                          </TableCell>
-                          <TableCell className="text-sm">{r.user_count}</TableCell>
-                          {canManageRoles && (
-                            <TableCell className="text-right">
-                              {r.assignable && (
-                                <div className="flex justify-end gap-1">
-                                  <Button size="sm" variant="ghost" onClick={() => openEditRole(r)}>
-                                    Edit
-                                  </Button>
-                                  {!r.is_system && (
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="text-destructive"
-                                      disabled={r.user_count > 0}
-                                      title={
-                                        r.user_count > 0
-                                          ? "Move its users to another role first"
-                                          : "Delete role"
-                                      }
-                                      onClick={() => handleRoleDelete(r)}
-                                    >
-                                      <Trash2 className="size-4" />
-                                    </Button>
-                                  )}
-                                </div>
-                              )}
-                            </TableCell>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                )}
-              </CardContent>
-            </Card>
-          </TabsContent>
+          {superAdmin && (
+            <TabsContent value="ui" className="mt-4">
+              <UiRightsTab />
+            </TabsContent>
+          )}
         </Tabs>
       </div>
 
@@ -809,97 +669,6 @@ export default function UsersPage() {
         )}
       </Dialog>
 
-      {/* ---------------- Role dialog ---------------- */}
-      <Dialog open={roleDialogOpen} onOpenChange={setRoleDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              {editingRole ? `Edit role — ${editingRole.name}` : "New role"}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <div>
-              <Label>Role name</Label>
-              <Input
-                className="mt-1"
-                value={roleForm.name}
-                placeholder="e.g. Service Head"
-                onChange={(e) => setRoleForm((f) => ({ ...f, name: e.target.value }))}
-              />
-            </div>
-
-            <div>
-              <Label>Description</Label>
-              <Input
-                className="mt-1"
-                value={roleForm.description}
-                onChange={(e) => setRoleForm((f) => ({ ...f, description: e.target.value }))}
-              />
-            </div>
-
-            <div className="space-y-3">
-              <Label>Rights</Label>
-              {ownerRoleForm && (
-                <p className="text-xs text-muted-foreground">
-                  The Owner role always has every right.
-                </p>
-              )}
-              {catalogGroups.map(([group, perms]) => (
-                <div key={group} className="rounded-md border p-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2">
-                    {group}
-                  </div>
-                  <div className="space-y-2">
-                    {perms.map((p) => {
-                      const checked = ownerRoleForm || roleForm.permissions.includes(p.code);
-                      const grantable = myPerms.includes(p.code);
-                      return (
-                        <label
-                          key={p.code}
-                          className={`flex items-center gap-2 text-sm ${!grantable || ownerRoleForm ? "opacity-60" : "cursor-pointer"}`}
-                          title={!grantable ? "You can't grant a right you don't have" : undefined}
-                        >
-                          <input
-                            type="checkbox"
-                            className="size-4 accent-[color:var(--primary)]"
-                            checked={checked}
-                            disabled={ownerRoleForm || !grantable}
-                            onChange={() => togglePermission(p.code)}
-                          />
-                          {p.label}
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {roleError && <p className="text-sm text-destructive">{roleError}</p>}
-          </div>
-
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRoleDialogOpen(false)}
-              disabled={roleSaving}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleRoleSave} disabled={roleSaving}>
-              {roleSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Saving…
-                </>
-              ) : (
-                "Save role"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </>
   );
 }
