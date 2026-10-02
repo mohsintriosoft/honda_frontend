@@ -215,7 +215,7 @@ const visit_record_url = (id) => APL_LINK + `api/showroom-visits/records/${id}/`
 const get_visit_summary = APL_LINK + "api/showroom-visits/summary/";
 const get_nav_badges = APL_LINK + "api/nav-badges/";
 const get_global_search = APL_LINK + "api/search/";
-const get_analytics = APL_LINK + "api/analytics/"
+const get_analytics = APL_LINK + "api/analytics/";
 const get_my_ui_rules = APL_LINK + "api/ui-rules/";
 const get_all_ui_rules = APL_LINK + "api/ui-rules/all/";
 const post_ui_rule = APL_LINK + "api/ui-rules/all/";
