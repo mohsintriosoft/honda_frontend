@@ -190,7 +190,7 @@ function OverviewTab() {
         </Button>
       </div>
 
-      {error && !canEdit && <div className="text-sm text-destructive">{error}</div>}
+      {error && <div className="text-sm text-destructive">{error}</div>}
 
       {data && (
         <>

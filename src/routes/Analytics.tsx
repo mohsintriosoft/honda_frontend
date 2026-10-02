@@ -578,7 +578,7 @@ export default function AnalyticsPage() {
         {data && k && p && (
           <>
             {/* ---------- KPIs ---------- */}
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
               <Kpi
                 label="AI calls"
                 value={num(k.calls)}
@@ -617,7 +617,7 @@ export default function AnalyticsPage() {
               /> */}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3 xl:grid-cols-3">
               <Kpi
                 label="Connect rate"
                 value={pct(k.connect_rate)}

@@ -178,7 +178,7 @@ export default function SegmentDetailPage() {
       />
 
       <div className="p-4 md:p-6 lg:p-8 space-y-4">
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <MetricTile label="Total customers" value={formatNumber(segment.customers ?? 0)} />
           <MetricTile label="Due today" value={segment.due_today ?? 0} tone="info" />
           <MetricTile

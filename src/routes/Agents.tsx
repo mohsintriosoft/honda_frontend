@@ -138,7 +138,7 @@ const AgentsPage = () => {
 
         {!ShowLoaderAdmin && !errorMsg && (
           <div className="p-4 md:p-6 lg:p-8 space-y-6">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               {[
                 { label: "Segments", value: String(segments.length), icon: Layers },
                 {

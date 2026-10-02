@@ -289,8 +289,7 @@ function mapRecordingApiToRecording(session: any): RecordingRow {
     // backend-normalised six-code outcome; falls back to the raw code for
     // an older API that does not send `outcome` yet
     outcome: (session.outcome || session.final_intent_code || "") as Recording["outcome"],
-    // quality,
-    // qualityKnown,
+    quality: 0, // quality column removed from this page; field still required by Recording
     status: mapCallStatusToRecordingStatus(callStatus),
     callStatus,
     llmCost,
@@ -860,7 +859,7 @@ export default function RecordingsPage() {
         )}
 
         {/* Stats */}
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           {[
             {
               l: "Recordings in library",

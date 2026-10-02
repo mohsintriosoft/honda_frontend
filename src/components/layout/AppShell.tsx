@@ -7,6 +7,7 @@ import {
   Moon,
   ChevronDown,
   Command,
+  Menu,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
@@ -22,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { CommandPalette } from "./CommandPalette";
 import { NAV_ITEMS, SECONDARY_NAV_ITEMS, badgeLabel } from "./navItems";
 import {
@@ -57,6 +59,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [dark, setDark] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Phone / small tablet: the sidebar lives in a slide-in drawer.
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Close the drawer as soon as a page is opened from it.
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
   const [signingOut, setSigningOut] = useState(false);
   const [badges, setBadges] = useState<Record<string, number>>({});
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -152,155 +161,185 @@ export function AppShell({ children }: { children: ReactNode }) {
 
   // const isActive = (to: string) => pathname === to || (to !== "/" && pathname.startsWith(to));
 
+  // Same sidebar for the desktop column and the mobile drawer.
+  const sidebarBody = (
+    <>
+    <div className="h-14 flex items-center gap-2 px-4 border-b">
+      <div className="size-8 rounded-md bg-gradient-to-br from-primary to-[color:var(--ai)] grid place-items-center text-primary-foreground font-display font-bold">
+        T
+      </div>
+      <div className="leading-tight">
+        <div className="text-sm font-semibold font-display">Triosoft</div>
+        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+          AI Lifecycle OS
+        </div>
+      </div>
+    </div>
+
+    {/* Workspace (dealer) -- from GET /api/nav-badges/ */}
+    <div className="p-3 border-b">
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <button
+            className="w-full flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-left hover:bg-accent transition-colors"
+            disabled={!workspace}
+          >
+            <div className="size-7 rounded bg-foreground/90 text-background grid place-items-center text-xs font-bold">
+              {workspace ? workspaceInitials(workspace.name) : ""}
+            </div>
+            <div className="flex-1 min-w-0">
+              {workspace ? (
+                <>
+                  <div className="text-sm font-medium truncate">{workspace.name}</div>
+                  <div className="text-[11px] text-muted-foreground truncate">
+                    {workspaceSubtitle}
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-1.5" aria-label="Loading workspace">
+                  <div className="h-3 w-24 rounded bg-muted animate-pulse" />
+                  <div className="h-2.5 w-16 rounded bg-muted animate-pulse" />
+                </div>
+              )}
+            </div>
+            <ChevronDown className="size-4 text-muted-foreground" />
+          </button>
+        </DropdownMenuTrigger>
+        {workspace && (
+          <DropdownMenuContent className="w-60" align="start">
+            <DropdownMenuLabel className="flex items-center justify-between gap-2">
+              <span className="truncate">{workspace.name}</span>
+              {workspace.code && (
+                <span className="text-[10px] font-mono text-muted-foreground">
+                  {workspace.code}
+                </span>
+              )}
+            </DropdownMenuLabel>
+            {workspace.my_branch && (
+              <div className="px-2 pb-1.5 text-xs text-muted-foreground">
+                You work at {workspace.my_branch.name}
+              </div>
+            )}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-normal">
+              Branches
+            </DropdownMenuLabel>
+            {workspace.branches.length === 0 ? (
+              <DropdownMenuItem disabled>No active branches</DropdownMenuItem>
+            ) : (
+              workspace.branches.map((b) => (
+                <DropdownMenuItem
+                  key={b.id}
+                  disabled={!canOpenBranches}
+                  onClick={() => navigate(`/branches/${b.id}`)}
+                >
+                  <Building2 className="mr-2 size-4" />
+                  <span className="flex-1 truncate">{b.name}</span>
+                  {b.is_main_branch && (
+                    <span className="ml-2 text-[10px] text-muted-foreground">Main</span>
+                  )}
+                </DropdownMenuItem>
+              ))
+            )}
+            {canOpenBranches && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => navigate("/branches")}>
+                  Manage branches
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        )}
+      </DropdownMenu>
+    </div>
+
+    <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
+      {visibleNav.map((item) => (
+        <Link
+          key={item.to}
+          to={item.to}
+          className={cn(
+            "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+            isActive(item.to)
+              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
+          )}
+        >
+          <item.icon className="size-4" />
+          <span className="flex-1">{item.label}</span>
+          {badgeText(item.to) && (
+            <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-medium">
+              {badgeText(item.to)}
+            </Badge>
+          )}
+        </Link>
+      ))}
+
+      {visibleSecondary.length > 0 && (
+        <div className="pt-4 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+          Workspace
+        </div>
+      )}
+      {visibleSecondary.map((item) => (
+        <Link
+          key={item.to}
+          to={item.to}
+          className={cn(
+            "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
+            isActive(item.to)
+              ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+              : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
+          )}
+        >
+          <item.icon className="size-4" />
+          <span>{item.label}</span>
+        </Link>
+      ))}
+    </nav>
+    </>
+  );
+
   return (
     <div className="min-h-screen flex w-full bg-background text-foreground">
-      {/* Sidebar */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-        <div className="h-14 flex items-center gap-2 px-4 border-b">
-          <div className="size-8 rounded-md bg-gradient-to-br from-primary to-[color:var(--ai)] grid place-items-center text-primary-foreground font-display font-bold">
-            T
-          </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold font-display">Triosoft</div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              AI Lifecycle OS
-            </div>
-          </div>
-        </div>
-
-        {/* Workspace (dealer) -- from GET /api/nav-badges/ */}
-        <div className="p-3 border-b">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className="w-full flex items-center gap-2 rounded-md border bg-card px-2.5 py-2 text-left hover:bg-accent transition-colors"
-                disabled={!workspace}
-              >
-                <div className="size-7 rounded bg-foreground/90 text-background grid place-items-center text-xs font-bold">
-                  {workspace ? workspaceInitials(workspace.name) : ""}
-                </div>
-                <div className="flex-1 min-w-0">
-                  {workspace ? (
-                    <>
-                      <div className="text-sm font-medium truncate">{workspace.name}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">
-                        {workspaceSubtitle}
-                      </div>
-                    </>
-                  ) : (
-                    <div className="space-y-1.5" aria-label="Loading workspace">
-                      <div className="h-3 w-24 rounded bg-muted animate-pulse" />
-                      <div className="h-2.5 w-16 rounded bg-muted animate-pulse" />
-                    </div>
-                  )}
-                </div>
-                <ChevronDown className="size-4 text-muted-foreground" />
-              </button>
-            </DropdownMenuTrigger>
-            {workspace && (
-              <DropdownMenuContent className="w-60" align="start">
-                <DropdownMenuLabel className="flex items-center justify-between gap-2">
-                  <span className="truncate">{workspace.name}</span>
-                  {workspace.code && (
-                    <span className="text-[10px] font-mono text-muted-foreground">
-                      {workspace.code}
-                    </span>
-                  )}
-                </DropdownMenuLabel>
-                {workspace.my_branch && (
-                  <div className="px-2 pb-1.5 text-xs text-muted-foreground">
-                    You work at {workspace.my_branch.name}
-                  </div>
-                )}
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground font-normal">
-                  Branches
-                </DropdownMenuLabel>
-                {workspace.branches.length === 0 ? (
-                  <DropdownMenuItem disabled>No active branches</DropdownMenuItem>
-                ) : (
-                  workspace.branches.map((b) => (
-                    <DropdownMenuItem
-                      key={b.id}
-                      disabled={!canOpenBranches}
-                      onClick={() => navigate(`/branches/${b.id}`)}
-                    >
-                      <Building2 className="mr-2 size-4" />
-                      <span className="flex-1 truncate">{b.name}</span>
-                      {b.is_main_branch && (
-                        <span className="ml-2 text-[10px] text-muted-foreground">Main</span>
-                      )}
-                    </DropdownMenuItem>
-                  ))
-                )}
-                {canOpenBranches && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => navigate("/branches")}>
-                      Manage branches
-                    </DropdownMenuItem>
-                  </>
-                )}
-              </DropdownMenuContent>
-            )}
-          </DropdownMenu>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto p-2 space-y-0.5">
-          {visibleNav.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={cn(
-                "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
-                isActive(item.to)
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60 hover:text-sidebar-foreground",
-              )}
-            >
-              <item.icon className="size-4" />
-              <span className="flex-1">{item.label}</span>
-              {badgeText(item.to) && (
-                <Badge variant="secondary" className="h-5 px-1.5 text-[10px] font-medium">
-                  {badgeText(item.to)}
-                </Badge>
-              )}
-            </Link>
-          ))}
-
-          {visibleSecondary.length > 0 && (
-            <div className="pt-4 pb-1 px-2.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-              Workspace
-            </div>
-          )}
-          {visibleSecondary.map((item) => (
-            <Link
-              key={item.to}
-              to={item.to}
-              className={cn(
-                "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors",
-                isActive(item.to)
-                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
-                  : "text-sidebar-foreground/80 hover:bg-sidebar-accent/60",
-              )}
-            >
-              <item.icon className="size-4" />
-              <span>{item.label}</span>
-            </Link>
-          ))}
-        </nav>
+      {/* Sidebar -- desktop: fixed column; stays in view while the page scrolls */}
+      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground sticky top-0 h-screen">
+        {sidebarBody}
       </aside>
+
+      {/* Sidebar -- phone / small tablet: slide-in drawer */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent
+          side="left"
+          className="w-72 max-w-[85vw] p-0 gap-0 flex flex-col bg-sidebar text-sidebar-foreground"
+        >
+          <SheetTitle className="sr-only">Navigation</SheetTitle>
+          {sidebarBody}
+        </SheetContent>
+      </Sheet>
 
       {/* Main column */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Topbar */}
-        <header className="h-14 flex items-center gap-3 border-b px-4 md:px-6 bg-background/80 backdrop-blur sticky top-0 z-30">
+        <header className="h-14 flex items-center gap-2 sm:gap-3 border-b px-3 sm:px-4 md:px-6 bg-background/80 backdrop-blur sticky top-0 z-30">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden shrink-0"
+            onClick={() => setMobileNavOpen(true)}
+            aria-label="Open menu"
+          >
+            <Menu className="size-5" />
+          </Button>
           <button
             onClick={() => setPaletteOpen(true)}
-            className="flex-1 max-w-md flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
+            className="flex-1 min-w-0 max-w-md flex items-center gap-2 rounded-md border bg-muted/40 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted transition-colors"
           >
-            <Search className="size-4" />
-            <span className="flex-1 text-left">Search customers, campaigns, calls…</span>
+            <Search className="size-4 shrink-0" />
+            <span className="flex-1 text-left truncate">
+              <span className="sm:hidden">Search…</span>
+              <span className="hidden sm:inline">Search customers, campaigns, calls…</span>
+            </span>
             <kbd className="hidden sm:inline-flex items-center gap-1 rounded border bg-background px-1.5 py-0.5 text-[10px] font-mono">
               <Command className="size-3" />K
             </kbd>
@@ -361,7 +400,7 @@ export function PageHeader({
   breadcrumbs?: { label: string; to?: string }[];
 }) {
   return (
-    <div className="px-4 md:px-6 lg:px-8 pt-6 pb-4 border-b bg-background">
+    <div className="px-4 md:px-6 lg:px-8 pt-5 md:pt-6 pb-4 border-b bg-background">
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav className="text-xs text-muted-foreground mb-2 flex items-center gap-1.5">
           {breadcrumbs.map((b, i) => (
@@ -380,12 +419,12 @@ export function PageHeader({
       )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-display font-semibold tracking-tight">{title}</h1>
+          <h1 className="text-xl sm:text-2xl font-display font-semibold tracking-tight break-words">{title}</h1>
           {description && (
             <p className="mt-1 text-sm text-muted-foreground max-w-2xl">{description}</p>
           )}
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </div>
   );

@@ -665,9 +665,9 @@ export default function ImportDetails() {
       <PageHeader
         breadcrumbs={[{ label: "Data Import", to: "/imports" }, { label: row.file_name }]}
         title={
-          <span className="flex items-center gap-3">
-            <FileSpreadsheet className="size-6 text-muted-foreground" />
-            {row.file_name}
+          <span className="flex items-center gap-3 min-w-0">
+            <FileSpreadsheet className="size-6 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 break-all">{row.file_name}</span>
           </span>
         }
         description={

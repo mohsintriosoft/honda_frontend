@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type JSX } from "react";
 import { Link } from "react-router-dom";
 import { PageHeader } from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -402,7 +402,7 @@ function ProfileTab() {
             </AvatarFallback>
           </Avatar>
 
-          <div className="min-w-0 flex-1">
+          <div className="min-w-[10rem] flex-1">
             <div className="truncate font-display text-lg font-semibold">{displayName}</div>
             <div className="truncate text-sm text-muted-foreground">{user?.email ?? "—"}</div>
           </div>

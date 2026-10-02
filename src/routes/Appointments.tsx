@@ -929,7 +929,7 @@ export default function AppointmentsPage() {
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Tabs
               value={rangeKey}
               onValueChange={(v) => {
@@ -950,7 +950,7 @@ export default function AppointmentsPage() {
               value={branchId !== null ? String(branchId) : undefined}
               onValueChange={(v) => setBranchId(v === GLOBAL_VALUE ? GLOBAL_VALUE : Number(v))}
             >
-              <SelectTrigger className="w-52">
+              <SelectTrigger className="w-full sm:w-52">
                 <SelectValue placeholder="Select branch" />
               </SelectTrigger>
               <SelectContent>
@@ -971,7 +971,7 @@ export default function AppointmentsPage() {
         </div>
 
         {/* Metrics */}
-        <div className="grid gap-3 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <MetricTile label="Upcoming" value={upcoming} tone="info" />
           <MetricTile label="Completed" value={completed} tone="success" />
           <MetricTile label="Missed" value={missed} tone="destructive" />

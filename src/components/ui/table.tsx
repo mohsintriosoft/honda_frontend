@@ -5,7 +5,10 @@ import { cn } from "@/lib/utils";
 const Table = React.forwardRef<HTMLTableElement, React.HTMLAttributes<HTMLTableElement>>(
   ({ className, ...props }, ref) => (
     <div className="relative w-full overflow-auto">
-      <table ref={ref} className={cn("w-full caption-bottom text-sm", className)} {...props} />
+      {/* min width on phones: columns keep a readable width and the table
+          scrolls sideways inside this wrapper instead of squeezing every
+          cell into a one-word-per-line column */}
+      <table ref={ref} className={cn("w-full min-w-[640px] md:min-w-0 caption-bottom text-sm", className)} {...props} />
     </div>
   ),
 );

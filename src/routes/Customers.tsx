@@ -177,11 +177,9 @@ export default function CustomersPage() {
       page,
       page_size: PAGE_SIZE,
       branch: filters.branch || undefined,
-      lifecycle: filters.lifecycle || undefined,
       insurance: filters.insurance || undefined,
       amc: filters.amc || undefined,
       last_called: filters.lastCalled || undefined,
-      min_spend: filters.minSpend || undefined,
       dnd: filters.dnd || undefined,
     })
       .then((res) => {

@@ -229,13 +229,13 @@ export default function Callbacks() {
           </div>
         )}
 
-        <div className="rounded-lg border overflow-hidden">
-          <table className="w-full text-sm">
+        <div className="rounded-lg border overflow-x-auto">
+          <table className="w-full min-w-[1040px] text-sm">
             <thead className="bg-muted/40 text-muted-foreground">
               <tr className="text-left">
-                <th className="px-4 py-2.5 font-medium">Customer</th>
-                <th className="px-4 py-2.5 font-medium">Requested by</th>
-                <th className="px-4 py-2.5 font-medium">Reason</th>
+                <th className="px-4 py-2.5 font-medium min-w-[170px]">Customer</th>
+                <th className="px-4 py-2.5 font-medium whitespace-nowrap">Requested by</th>
+                <th className="px-4 py-2.5 font-medium min-w-[220px]">Reason</th>
                 <th className="px-4 py-2.5 font-medium">Branch</th>
                 <th className="px-4 py-2.5 font-medium">Requested for</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>

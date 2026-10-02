@@ -254,7 +254,7 @@ function DashboardPage() {
 
         {/* Chart */}
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
+          <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle className="text-base font-display">
                 Call performance — last 14 days
@@ -346,12 +346,12 @@ function DashboardPage() {
 
         {/* Live campaigns + live calls */}
         <div className="grid gap-4 lg:grid-cols-2">
-          <Card className="self-start">
-            <CardHeader className="flex-row items-center justify-between pb-3">
+          <Card className="self-start min-w-0">
+            <CardHeader className="flex-row items-center justify-between gap-2 pb-3 px-4 sm:px-6">
               <CardTitle className="text-base font-display flex items-center gap-2">
                 Today's live campaigns
                 {liveCampaigns.length > 0 && (
-                  <span className="rounded-full bg-emerald-500/10 text-emerald-600 text-[11px] font-medium px-2 py-0.5">
+                  <span className="whitespace-nowrap rounded-full bg-emerald-500/10 text-emerald-600 text-[11px] font-medium px-2 py-0.5">
                     {liveCampaigns.length} live
                   </span>
                 )}
@@ -375,7 +375,7 @@ function DashboardPage() {
               {liveCampaigns.length > 0 && (
                 <>
                   {/* Combined totals across all live campaigns */}
-                  <div className="grid grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {CAMPAIGN_STATS.map((st) => (
                       <div key={st.key} className={`rounded-lg px-3 py-2 ${st.box}`}>
                         <div className={`text-[10px] uppercase tracking-wide ${st.text}`}>
@@ -399,14 +399,14 @@ function DashboardPage() {
                       <Link
                         key={c.id}
                         to={`/campaigns/${c.id}`}
-                        className="group flex items-center gap-3 px-3 py-2.5 hover:bg-accent/50 transition-colors"
+                        className="group flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2.5 hover:bg-accent/50 transition-colors"
                       >
                         <span className="relative flex size-2 shrink-0">
                           <span className="absolute inline-flex size-full rounded-full bg-emerald-500 opacity-60 animate-ping" />
                           <span className="relative inline-flex size-2 rounded-full bg-emerald-500" />
                         </span>
 
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-[9rem] flex-1">
                           <div className="text-sm font-medium truncate">{c.name}</div>
                           <div className="text-xs text-muted-foreground truncate">
                             {c.agent?.persona_name ?? c.agent?.agent_name ?? "AI Agent"} •{" "}

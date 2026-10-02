@@ -360,13 +360,13 @@ function LiveCallCard({ call, onEnded }: { call: LiveCallRow; onEnded: () => voi
   return (
     <Card>
       <CardContent className="py-3 space-y-2">
-        <div className="flex items-center gap-4">
-          <div className="size-10 rounded-full bg-[color:var(--success)]/15 grid place-items-center">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <div className="size-10 shrink-0 rounded-full bg-[color:var(--success)]/15 grid place-items-center">
             <PhoneCall className="size-5 text-[color:var(--success)] animate-pulse" />
           </div>
 
           <div className="flex-1 min-w-0">
-            <div className="font-medium flex items-center gap-2">
+            <div className="font-medium flex flex-wrap items-center gap-x-2 gap-y-1">
               {name}
 
               <span className="inline-flex items-center gap-1 text-[10px] rounded-full bg-secondary px-1.5 py-0.5 text-muted-foreground">
