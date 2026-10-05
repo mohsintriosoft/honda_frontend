@@ -338,7 +338,8 @@ function RuleDialog({
         <DialogHeader>
           <DialogTitle>Restrict this element</DialogTitle>
           <DialogDescription>
-            Applies to the selected roles only. The account owner always sees everything.
+            Applies to the selected roles only (Owner included). Super admins always see everything.
+            A rule can always be undone from this Page rights button.
           </DialogDescription>
         </DialogHeader>
 

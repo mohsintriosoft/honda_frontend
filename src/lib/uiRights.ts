@@ -9,7 +9,8 @@
  *   label -- its visible text / field label, normalised (see normalizeLabel)
  *
  * This only shapes the SCREEN. What a role may actually do is still enforced
- * by the API (Role permissions). The owner is never restricted.
+ * by the API (Role permissions). Any role can be restricted, the Owner role
+ * included; super admins (settings.HEALTH_BALANCE_STAFF_IDS) never are.
  */
 import { useSyncExternalStore } from "react";
 import {

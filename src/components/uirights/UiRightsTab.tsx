@@ -131,8 +131,9 @@ export function UiRightsTab() {
             </p>
           )}
           <p className="text-xs">
-            Only super admins see this tab and the Page rights button, and they are never restricted
-            themselves — neither is the account owner. This controls what people <i>see</i>; what they can actually
+            The owner and super admins manage these rules. Any role can be restricted — the Owner role
+            too — except super admins, who always see everything. A rule can always be undone from the
+            Page rights button on the page it applies to. This controls what people <i>see</i>; what they can actually
             do is still decided by the role's rights in the “Roles & rights” tab.
           </p>
         </CardContent>
