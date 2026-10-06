@@ -70,7 +70,7 @@ type Workspace = {
   limits: {
     max_concurrent_calls: number;
     daily_call_budget: number;
-    min_days_between_calls: number;
+    min_minutes_between_calls: number;
     max_calls_per_customer_month: number;
     call_scheduler_hour: number;
     call_scheduler_minute: number;
@@ -192,6 +192,70 @@ function NumberField({
       <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
         {suffix}
       </span>
+    </div>
+  );
+}
+
+type DurationUnit = "minutes" | "hours" | "days";
+
+const UNIT_MINUTES: Record<DurationUnit, number> = { minutes: 1, hours: 60, days: 24 * 60 };
+const MAX_MINUTES = 90 * 24 * 60; // backend limit: 90 days
+
+/** Largest unit the value fits exactly: 4320 -> days, 120 -> hours, 45 -> minutes. */
+function bestUnit(minutes: number): DurationUnit {
+  if (minutes > 0 && minutes % UNIT_MINUTES.days === 0) return "days";
+  if (minutes > 0 && minutes % UNIT_MINUTES.hours === 0) return "hours";
+  return "minutes";
+}
+
+/**
+ * A duration stored in MINUTES, entered as minutes, hours or days.
+ * Opens in the largest unit the saved value fits exactly (4320 -> 3 days).
+ */
+function DurationField({ minutes, onChange }: { minutes: number; onChange: (minutes: number) => void }) {
+  const [unit, setUnit] = useState<DurationUnit>(() => bestUnit(minutes));
+
+  // a value that doesn't fit the chosen unit (reset / reload) -> switch unit
+  useEffect(() => {
+    if (minutes % UNIT_MINUTES[unit] !== 0) setUnit(bestUnit(minutes));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [minutes]);
+
+  const factor = UNIT_MINUTES[unit];
+  const shown = minutes / factor;
+
+  return (
+    <div className="flex gap-2">
+      <Input
+        type="number"
+        min={0}
+        max={Math.floor(MAX_MINUTES / factor)}
+        step={1}
+        className="tabular-nums"
+        value={Number.isFinite(shown) ? shown : 0}
+        onChange={(e) => {
+          const n = Math.max(0, Math.round(Number(e.target.value) || 0));
+          onChange(Math.min(MAX_MINUTES, n * factor));
+        }}
+      />
+      <Select
+        value={unit}
+        onValueChange={(v) => {
+          const next = v as DurationUnit;
+          // keep the same number, in the new unit ("30" minutes -> "30" hours)
+          onChange(Math.min(MAX_MINUTES, Math.round(shown) * UNIT_MINUTES[next]));
+          setUnit(next);
+        }}
+      >
+        <SelectTrigger className="w-32 shrink-0">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="minutes">minutes</SelectItem>
+          <SelectItem value="hours">hours</SelectItem>
+          <SelectItem value="days">days</SelectItem>
+        </SelectContent>
+      </Select>
     </div>
   );
 }
@@ -727,10 +791,11 @@ const LIMIT_GROUPS: {
       title: "Customer contact rules",
       fields: [
         {
-          key: "min_days_between_calls",
-          label: "Days between calls to one customer",
-          help: "A customer isn't called again by any campaign within this many days.",
-          suffix: "days",
+          key: "min_minutes_between_calls",
+          label: "Gap before calling a customer again",
+          help:
+            "No answer, dropped and callback calls are redialed after this gap, and no campaign calls the customer again sooner. Minutes, hours or days.",
+          suffix: "minutes",
         },
         {
           key: "max_calls_per_customer_month",
@@ -752,13 +817,13 @@ function CallingTab({ ws, onSaved }: { ws: Workspace; onSaved: (w: Workspace) =>
     () => ({
       max_concurrent_calls: ws.limits.max_concurrent_calls,
       daily_call_budget: ws.limits.daily_call_budget,
-      min_days_between_calls: ws.limits.min_days_between_calls,
+      min_minutes_between_calls: ws.limits.min_minutes_between_calls,
       max_calls_per_customer_month: ws.limits.max_calls_per_customer_month,
     }),
     [
       ws.limits.max_concurrent_calls,
       ws.limits.daily_call_budget,
-      ws.limits.min_days_between_calls,
+      ws.limits.min_minutes_between_calls,
       ws.limits.max_calls_per_customer_month,
     ],
   );
@@ -807,11 +872,18 @@ function CallingTab({ ws, onSaved }: { ws: Workspace; onSaved: (w: Workspace) =>
               <div className="grid gap-4 md:grid-cols-2">
                 {group.fields.map((f) => (
                   <Field key={f.key} label={f.label} hint={f.help}>
-                    <NumberField
-                      value={limits.form[f.key]}
-                      onChange={(n) => limits.set(f.key, n)}
-                      suffix={f.suffix}
-                    />
+                    {f.key === "min_minutes_between_calls" ? (
+                      <DurationField
+                        minutes={limits.form[f.key]}
+                        onChange={(n) => limits.set(f.key, n)}
+                      />
+                    ) : (
+                      <NumberField
+                        value={limits.form[f.key]}
+                        onChange={(n) => limits.set(f.key, n)}
+                        suffix={f.suffix}
+                      />
+                    )}
                   </Field>
                 ))}
               </div>
