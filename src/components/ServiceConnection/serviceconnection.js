@@ -42,12 +42,12 @@ const getWsBaseUrl = () =>
    WEBSOCKET
 ========================================================= */
 
-const WS_URL = `${getWsBaseUrl()}/api/voice/ws/audio`;
+const WS_URL = `${getWsBaseUrl()}api/voice/ws/audio`;
 
 const getListenWsUrl = (sessionId) => {
   const token = encodeURIComponent(getAccessToken() || "");
 
-  return `${getWsBaseUrl()}/api/voice/ws/listen/${encodeURIComponent(sessionId)}/?token=${token}`;
+  return `${getWsBaseUrl()}api/voice/ws/listen/${encodeURIComponent(sessionId)}/?token=${token}`;
 };
 
 // Backward compatibility
@@ -59,260 +59,260 @@ const getListenWsUrl2 = getListenWsUrl;
 
 /* ---------- AUTH ---------- */
 
-const login_user_email = `${APL_LINK}/api/login_user_email`;
-const register_user_email = `${APL_LINK}/api/register_user_email`;
-const logout_user_email = `${APL_LINK}/api/logout_user_email`;
+const login_user_email = `${APL_LINK}api/login_user_email`;
+const register_user_email = `${APL_LINK}api/register_user_email`;
+const logout_user_email = `${APL_LINK}api/logout_user_email`;
 
 /* ---------- DASHBOARD / ANALYTICS ---------- */
 
-const get_dashboard_summary = `${APL_LINK}/api/dashboard/`;
-const get_analytics_summary = `${APL_LINK}/api/analytics/`;
+const get_dashboard_summary = `${APL_LINK}api/dashboard/`;
+const get_analytics_summary = `${APL_LINK}api/analytics/`;
 const get_analytics = get_analytics_summary;
 
 /* ---------- SEGMENTS ---------- */
 
-const get_segments = `${APL_LINK}/api/segments/`;
+const get_segments = `${APL_LINK}api/segments/`;
 
-const get_segment_detail = (segmentId) => `${APL_LINK}/api/segments/${segmentId}/`;
+const get_segment_detail = (segmentId) => `${APL_LINK}api/segments/${segmentId}/`;
 
 const patch_segment = get_segment_detail;
 
 const get_segment_customers = (segmentId, page = 1, pageSize = 20) =>
-  `${APL_LINK}/api/segments/${segmentId}/customers/?page=${page}&page_size=${pageSize}`;
+  `${APL_LINK}api/segments/${segmentId}/customers/?page=${page}&page_size=${pageSize}`;
 
 /* ---------- LLM / TTS ---------- */
 
-const get_llm_settings = `${APL_LINK}/api/llm-settings/`;
-const get_tts_voices = `${APL_LINK}/api/tts-voices/`;
+const get_llm_settings = `${APL_LINK}api/llm-settings/`;
+const get_tts_voices = `${APL_LINK}api/tts-voices/`;
 const update_llm_setting = get_llm_settings;
 
 /* ---------- KNOWLEDGE ---------- */
 
-const get_agent_knowledge = (agentId) => `${APL_LINK}/api/agents/${agentId}/knowledge/`;
+const get_agent_knowledge = (agentId) => `${APL_LINK}api/agents/${agentId}/knowledge/`;
 
-const get_kb_documents = `${APL_LINK}/api/kb/documents/`;
-const kb_store_url = `${APL_LINK}/api/kb/store/`;
+const get_kb_documents = `${APL_LINK}api/kb/documents/`;
+const kb_store_url = `${APL_LINK}api/kb/store/`;
 
-const kb_document_update_url = (docId) => `${APL_LINK}/api/kb/documents/${docId}/update/`;
+const kb_document_update_url = (docId) => `${APL_LINK}api/kb/documents/${docId}/update/`;
 
-const kb_document_delete_url = (docId) => `${APL_LINK}/api/kb/documents/${docId}/`;
+const kb_document_delete_url = (docId) => `${APL_LINK}api/kb/documents/${docId}/`;
 
 /* ---------- RECORDINGS ---------- */
 
-const get_recordings = `${APL_LINK}/api/recordings/`;
+const get_recordings = `${APL_LINK}api/recordings/`;
 
-const get_recording_detail = (id) => `${APL_LINK}/api/recordings/${id}/`;
+const get_recording_detail = (id) => `${APL_LINK}api/recordings/${id}/`;
 
 const patch_recording = get_recording_detail;
 
 /* ---------- VOICE ---------- */
 
-const get_live_calls = `${APL_LINK}/api/live-calls/`;
+const get_live_calls = `${APL_LINK}api/live-calls/`;
 
-const get_quick_call_meta = `${APL_LINK}/api/quick-call/meta/`;
+const get_quick_call_meta = `${APL_LINK}api/quick-call/meta/`;
 
-const post_quick_call_save = `${APL_LINK}/api/quick-call/save/`;
+const post_quick_call_save = `${APL_LINK}api/quick-call/save/`;
 
-const get_quick_call_list = `${APL_LINK}/api/quick-call/list/`;
+const get_quick_call_list = `${APL_LINK}api/quick-call/list/`;
 
 const get_quick_call_status = (sessionId) =>
-  `${APL_LINK}/api/quick-call/status/?session_id=${encodeURIComponent(sessionId)}`;
+  `${APL_LINK}api/quick-call/status/?session_id=${encodeURIComponent(sessionId)}`;
 
 const get_quick_vehicle_customer_lookup = (phone) =>
-  `${APL_LINK}/api/quick-vehicle/customer-lookup/?phone=${encodeURIComponent(phone)}`;
+  `${APL_LINK}api/quick-vehicle/customer-lookup/?phone=${encodeURIComponent(phone)}`;
 
-const post_quick_vehicle_save = `${APL_LINK}/api/quick-vehicle/save/`;
+const post_quick_vehicle_save = `${APL_LINK}api/quick-vehicle/save/`;
 
-const post_plivo_call = `${APL_LINK}/api/voice/plivo/call/`;
+const post_plivo_call = `${APL_LINK}api/voice/plivo/call/`;
 
-const post_plivo_end_call = `${APL_LINK}/api/voice/plivo/end-call/`;
+const post_plivo_end_call = `${APL_LINK}api/voice/plivo/end-call/`;
 
 /* ---------- CUSTOMERS ---------- */
 
-const get_customers = `${APL_LINK}/api/customers/`;
+const get_customers = `${APL_LINK}api/customers/`;
 
-const get_customer_detail = (customerId) => `${APL_LINK}/api/customers/${customerId}/`;
+const get_customer_detail = (customerId) => `${APL_LINK}api/customers/${customerId}/`;
 
-const get_call_tasks = `${APL_LINK}/api/call-tasks/`;
+const get_call_tasks = `${APL_LINK}api/call-tasks/`;
 
 /* ---------- DEALERS / BRANCHES ---------- */
 
-const get_dealers = `${APL_LINK}/api/dealers/`;
-const get_branches = `${APL_LINK}/api/branches/`;
+const get_dealers = `${APL_LINK}api/dealers/`;
+const get_branches = `${APL_LINK}api/branches/`;
 
-const get_branch_detail = (id) => `${APL_LINK}/api/branches/${id}/`;
+const get_branch_detail = (id) => `${APL_LINK}api/branches/${id}/`;
 
 const patch_branch = get_branch_detail;
 
 /* ---------- CALENDAR ---------- */
 
 const get_branch_calendar = (branchId, start, range = "week") =>
-  `${APL_LINK}/api/branches/${branchId}/calendar/?start=${encodeURIComponent(
+  `${APL_LINK}api/branches/${branchId}/calendar/?start=${encodeURIComponent(
     start,
   )}&range=${encodeURIComponent(range)}`;
 
-const post_manual_slot = (branchId) => `${APL_LINK}/api/branches/${branchId}/manual-slot/`;
+const post_manual_slot = (branchId) => `${APL_LINK}api/branches/${branchId}/manual-slot/`;
 
 const get_slot_blocks = (branchId, date) =>
-  `${APL_LINK}/api/branches/${branchId}/slot-blocks/${
+  `${APL_LINK}api/branches/${branchId}/slot-blocks/${
     date ? `?date=${encodeURIComponent(date)}` : ""
   }`;
 
-const post_slot_block = (branchId) => `${APL_LINK}/api/branches/${branchId}/slot-blocks/`;
+const post_slot_block = (branchId) => `${APL_LINK}api/branches/${branchId}/slot-blocks/`;
 
-const delete_slot_block = (id) => `${APL_LINK}/api/slot-blocks/${id}/`;
+const delete_slot_block = (id) => `${APL_LINK}api/slot-blocks/${id}/`;
 
-const get_appointments = `${APL_LINK}/api/appointments/`;
+const get_appointments = `${APL_LINK}api/appointments/`;
 
-const delete_appointment = (id) => `${APL_LINK}/api/appointments/${id}/`;
+const delete_appointment = (id) => `${APL_LINK}api/appointments/${id}/`;
 
 /* ---------- CALLBACKS ---------- */
 
-const get_callbacks = `${APL_LINK}/api/callbacks/`;
+const get_callbacks = `${APL_LINK}api/callbacks/`;
 
-const patch_callback = (id) => `${APL_LINK}/api/callbacks/${id}/`;
+const patch_callback = (id) => `${APL_LINK}api/callbacks/${id}/`;
 
 const delete_callback = patch_callback;
 
 /* ---------- CRM ---------- */
 
-const get_booking_availability = `${APL_LINK}/api/crm/booking-availability/`;
+const get_booking_availability = `${APL_LINK}api/crm/booking-availability/`;
 
-const post_create_booking = `${APL_LINK}/api/crm/booking/create/`;
+const post_create_booking = `${APL_LINK}api/crm/booking/create/`;
 
-const post_cancel_booking = `${APL_LINK}/api/crm/booking/cancel/`;
+const post_cancel_booking = `${APL_LINK}api/crm/booking/cancel/`;
 
 /* ---------- CAMPAIGNS ---------- */
 
-const get_campaigns = `${APL_LINK}/api/campaigns/`;
+const get_campaigns = `${APL_LINK}api/campaigns/`;
 
-const get_campaign_detail = (campaignId) => `${APL_LINK}/api/campaigns/${campaignId}/`;
+const get_campaign_detail = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/`;
 
 const patch_campaign = get_campaign_detail;
 
-const campaign_pause = (campaignId) => `${APL_LINK}/api/campaigns/${campaignId}/pause/`;
+const campaign_pause = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/pause/`;
 
-const campaign_pause_clear = (campaignId) => `${APL_LINK}/api/campaigns/${campaignId}/pause-clear/`;
+const campaign_pause_clear = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/pause-clear/`;
 
-const campaign_resume = (campaignId) => `${APL_LINK}/api/campaigns/${campaignId}/resume/`;
+const campaign_resume = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/resume/`;
 
-const get_campaign_batches = (campaignId) => `${APL_LINK}/api/campaigns/${campaignId}/batches/`;
+const get_campaign_batches = (campaignId) => `${APL_LINK}api/campaigns/${campaignId}/batches/`;
 
 /* ---------- INTENTS ---------- */
 
-const get_intents = `${APL_LINK}/api/intents/`;
+const get_intents = `${APL_LINK}api/intents/`;
 
-const get_intent_summary = (id) => `${APL_LINK}/api/intents/?id=${encodeURIComponent(id)}`;
+const get_intent_summary = (id) => `${APL_LINK}api/intents/?id=${encodeURIComponent(id)}`;
 
-const get_intent_turns = (id) => `${APL_LINK}/api/intents/${id}/turns/`;
+const get_intent_turns = (id) => `${APL_LINK}api/intents/${id}/turns/`;
 
 /* ---------- FILLERS ---------- */
 
-const get_intent_fillers_summary = `${APL_LINK}/api/intents/fillers/`;
+const get_intent_fillers_summary = `${APL_LINK}api/intents/fillers/`;
 
-const get_intent_fillers_detail = (id) => `${APL_LINK}/api/intents/${id}/fillers/`;
+const get_intent_fillers_detail = (id) => `${APL_LINK}api/intents/${id}/fillers/`;
 
 const post_intent_filler = get_intent_fillers_detail;
 
-const patch_filler = (id) => `${APL_LINK}/api/fillers/${id}/`;
+const patch_filler = (id) => `${APL_LINK}api/fillers/${id}/`;
 
 const delete_filler = patch_filler;
 
 /* ---------- IMPORTS ---------- */
 
-const get_imports = `${APL_LINK}/api/imports/`;
+const get_imports = `${APL_LINK}api/imports/`;
 
 const post_import_upload = get_imports;
 
-const get_import_detail = (id) => `${APL_LINK}/api/imports/${id}/`;
+const get_import_detail = (id) => `${APL_LINK}api/imports/${id}/`;
 
-const get_import_preview = (id) => `${APL_LINK}/api/imports/${id}/preview/`;
+const get_import_preview = (id) => `${APL_LINK}api/imports/${id}/preview/`;
 
-const post_import_commit = (id) => `${APL_LINK}/api/imports/${id}/commit/`;
+const post_import_commit = (id) => `${APL_LINK}api/imports/${id}/commit/`;
 
-const post_import_revert = (id) => `${APL_LINK}/api/imports/${id}/revert/`;
+const post_import_revert = (id) => `${APL_LINK}api/imports/${id}/revert/`;
 
-const post_import_delete = (id) => `${APL_LINK}/api/imports/${id}/delete/`;
+const post_import_delete = (id) => `${APL_LINK}api/imports/${id}/delete/`;
 
-const get_import_errors = (id) => `${APL_LINK}/api/imports/${id}/errors/`;
+const get_import_errors = (id) => `${APL_LINK}api/imports/${id}/errors/`;
 
-const get_import_unmatched = (id) => `${APL_LINK}/api/imports/${id}/unmatched/`;
+const get_import_unmatched = (id) => `${APL_LINK}api/imports/${id}/unmatched/`;
 
-const post_import_assign_segment = (id) => `${APL_LINK}/api/imports/${id}/assign-segment/`;
+const post_import_assign_segment = (id) => `${APL_LINK}api/imports/${id}/assign-segment/`;
 
-const get_import_rows = (id) => `${APL_LINK}/api/imports/${id}/rows/`;
+const get_import_rows = (id) => `${APL_LINK}api/imports/${id}/rows/`;
 
 /* ---------- DIALER ---------- */
 
-const get_dialer_schedule = `${APL_LINK}/api/dialer-schedule/`;
+const get_dialer_schedule = `${APL_LINK}api/dialer-schedule/`;
 
-const post_dialer_schedule = `${APL_LINK}/api/dialer-schedule/update/`;
+const post_dialer_schedule = `${APL_LINK}api/dialer-schedule/update/`;
 
 /* ---------- PROVIDERS ---------- */
 
-const get_provider_settings = `${APL_LINK}/api/provider-settings/`;
+const get_provider_settings = `${APL_LINK}api/provider-settings/`;
 
-const post_provider_settings = `${APL_LINK}/api/provider-settings/update/`;
+const post_provider_settings = `${APL_LINK}api/provider-settings/update/`;
 
-const get_provider_health = `${APL_LINK}/api/provider-health/`;
+const get_provider_health = `${APL_LINK}api/provider-health/`;
 
 /* ---------- USERS / ROLES ---------- */
 
-const get_users = `${APL_LINK}/api/users/`;
+const get_users = `${APL_LINK}api/users/`;
 
 const post_user = get_users;
 
-const patch_user = (id) => `${APL_LINK}/api/users/${id}/`;
+const patch_user = (id) => `${APL_LINK}api/users/${id}/`;
 
-const get_roles = `${APL_LINK}/api/roles/`;
+const get_roles = `${APL_LINK}api/roles/`;
 
 const post_role = get_roles;
 
-const role_url = (id) => `${APL_LINK}/api/roles/${id}/`;
+const role_url = (id) => `${APL_LINK}api/roles/${id}/`;
 
-const get_profile = `${APL_LINK}/api/profile/`;
+const get_profile = `${APL_LINK}api/profile/`;
 
 /* ---------- SETTINGS ---------- */
 
-const get_workspace_settings = `${APL_LINK}/api/settings/workspace/`;
+const get_workspace_settings = `${APL_LINK}api/settings/workspace/`;
 
 const patch_workspace_settings = get_workspace_settings;
 
-const patch_profile = `${APL_LINK}/api/profile/update/`;
+const patch_profile = `${APL_LINK}api/profile/update/`;
 
-const post_change_password = `${APL_LINK}/api/profile/password/`;
+const post_change_password = `${APL_LINK}api/profile/password/`;
 
-const patch_settings_voice = (id) => `${APL_LINK}/api/settings/voices/${id}/`;
+const patch_settings_voice = (id) => `${APL_LINK}api/settings/voices/${id}/`;
 
 /* ---------- SHOWROOM VISITS ---------- */
 
-const get_visit_batches = `${APL_LINK}/api/showroom-visits/batches/`;
+const get_visit_batches = `${APL_LINK}api/showroom-visits/batches/`;
 
 const post_visit_upload = get_visit_batches;
 
-const visit_batch_url = (id) => `${APL_LINK}/api/showroom-visits/batches/${id}/`;
+const visit_batch_url = (id) => `${APL_LINK}api/showroom-visits/batches/${id}/`;
 
-const post_visit_process = (id) => `${APL_LINK}/api/showroom-visits/batches/${id}/process/`;
+const post_visit_process = (id) => `${APL_LINK}api/showroom-visits/batches/${id}/process/`;
 
-const get_visit_records = `${APL_LINK}/api/showroom-visits/records/`;
+const get_visit_records = `${APL_LINK}api/showroom-visits/records/`;
 
-const visit_record_url = (id) => `${APL_LINK}/api/showroom-visits/records/${id}/`;
+const visit_record_url = (id) => `${APL_LINK}api/showroom-visits/records/${id}/`;
 
-const get_visit_summary = `${APL_LINK}/api/showroom-visits/summary/`;
+const get_visit_summary = `${APL_LINK}api/showroom-visits/summary/`;
 
 /* ---------- NAV / SEARCH / UI ---------- */
 
-const get_nav_badges = `${APL_LINK}/api/nav-badges/`;
+const get_nav_badges = `${APL_LINK}api/nav-badges/`;
 
-const get_global_search = `${APL_LINK}/api/search/`;
+const get_global_search = `${APL_LINK}api/search/`;
 
-const get_my_ui_rules = `${APL_LINK}/api/ui-rules/`;
+const get_my_ui_rules = `${APL_LINK}api/ui-rules/`;
 
-const get_all_ui_rules = `${APL_LINK}/api/ui-rules/all/`;
+const get_all_ui_rules = `${APL_LINK}api/ui-rules/all/`;
 
 const post_ui_rule = get_all_ui_rules;
 
-const ui_rule_url = (id) => `${APL_LINK}/api/ui-rules/${id}/`;
+const ui_rule_url = (id) => `${APL_LINK}api/ui-rules/${id}/`;
 
 /* =========================================================
    AUTH / LOCAL STORAGE
