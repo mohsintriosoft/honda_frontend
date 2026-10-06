@@ -8,7 +8,7 @@ const NO_TOKEN_VALUES = ["0", "1", "", null, undefined];
 ========================================================= */
 
 let APL_LINK = "https://omhonda.triosoft.ai/";
-// APL_LINK = "http://192.168.1.20:8000/";
+// APL_LINK = "http://192.168.122.1:8000/";
 // APL_LINK = "https://molecular-mama-riverside.ngrok-free.dev/";
 
 const AUDIO_BASE_URL = "/media/call_recordings/";
@@ -216,6 +216,8 @@ const get_visit_summary = APL_LINK + "api/showroom-visits/summary/";
 const get_nav_badges = APL_LINK + "api/nav-badges/";
 const get_global_search = APL_LINK + "api/search/";
 const get_analytics = APL_LINK + "api/analytics/";
+// Call outcomes panel (Dashboard + Reports) -- views_analytics.call_stats
+const get_call_stats = APL_LINK + "api/call-stats/";
 const get_my_ui_rules = APL_LINK + "api/ui-rules/";
 const get_all_ui_rules = APL_LINK + "api/ui-rules/all/";
 const post_ui_rule = APL_LINK + "api/ui-rules/all/";
@@ -1058,6 +1060,7 @@ export {
   get_nav_badges,
   get_global_search,
   get_analytics,
+  get_call_stats,
   get_my_ui_rules,
   get_all_ui_rules,
   post_ui_rule,

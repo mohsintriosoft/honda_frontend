@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { PageHeader } from "@/components/layout/AppShell";
+import { CallOutcomeStats } from "@/components/reports/CallOutcomeStats";
 import { KpiCard } from "@/components/data/KpiCard";
 import { StatusBadge } from "@/components/data/StatusBadge";
 import { Button } from "@/components/ui/button";
@@ -343,6 +344,9 @@ function DashboardPage() {
             </div>
           </CardContent>
         </Card>
+
+        {/* How today's (or any period's) calls ended */}
+        <CallOutcomeStats defaultPreset="today" title="Call outcomes" />
 
         {/* Live campaigns + live calls */}
         <div className="grid gap-4 lg:grid-cols-2">
