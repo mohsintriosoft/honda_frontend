@@ -27,7 +27,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { CommandPalette } from "./CommandPalette";
 import { UiRightsEnforcer } from "@/components/uirights/UiRightsEnforcer";
 import { UiRightsPicker } from "@/components/uirights/UiRightsPicker";
-import { clearUiRightsCache } from "@/lib/uiRights";
+import { clearUiRightsCache, useUiRights } from "@/lib/uiRights";
 import { NAV_ITEMS, SECONDARY_NAV_ITEMS, badgeLabel } from "./navItems";
 import {
   server_get_data,
@@ -111,6 +111,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const badgeText = (to: string) => badgeLabel(badges, to);
 
   // Only the pages this user's role can open.
+  useUiRights(); // re-render the menu once /api/ui-rules/ says who is super admin
   const visibleNav = nav.filter((item) => canAccessPath(item.to));
   const visibleSecondary = secondary.filter((item) => canAccessPath(item.to));
 

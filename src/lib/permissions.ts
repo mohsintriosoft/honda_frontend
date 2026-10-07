@@ -41,6 +41,16 @@ export function isSuperAdmin(): boolean {
   return user?.is_super_admin === true || getUiRightsState().canManage;
 }
 
+/**
+ * STRICT super admin: only staff ids in settings.HEALTH_BALANCE_STAFF_IDS
+ * (not the owner role). Used by the SOP page. From the login user, or from
+ * /api/ui-rules/ for a session that logged in before the flag existed.
+ */
+export function isStrictSuperAdmin(): boolean {
+  const user = getStaffUser();
+  return user?.is_super_admin === true || getUiRightsState().isSuperAdmin === true;
+}
+
 /** True if the user has ANY of the given rights (same rule as backend @require_perm). */
 export function hasPerm(...codes: PermCode[]): boolean {
   const perms = getPermissions();
@@ -72,6 +82,7 @@ const ROUTE_PERMS: Record<string, PermCode[] | null> = {
   "/integrations": ["settings.manage"],
   "/users": ["users.view", "users.manage"], // + super admins (see canAccessPath)
   "/settings": null,
+  "/sops": null, // super admins only -- see canAccessPath
 };
 
 function matchRoute(path: string): string | undefined {
@@ -86,6 +97,7 @@ export function canAccessPath(path: string): boolean {
   if (key === undefined) return true;
   const needed = ROUTE_PERMS[key];
   if (key === "/users" && isSuperAdmin()) return true; // Roles & rights / UI rights
+  if (key === "/sops") return isStrictSuperAdmin(); // SOP: HEALTH_BALANCE_STAFF_IDS only
   return needed === null || hasPerm(...needed);
 }
 

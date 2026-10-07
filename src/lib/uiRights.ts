@@ -66,6 +66,7 @@ type State = {
   previewRole: string | null; // admin "see the page as this role"
   pickMode: boolean;
   loaded: boolean;
+  isSuperAdmin: boolean; // strict: settings.HEALTH_BALANCE_STAFF_IDS
 };
 
 const CACHE_KEY = "ui_rules_cache_v1";
@@ -87,6 +88,7 @@ let state: State = {
   allRules: [],
   roles: [],
   canManage: false,
+  isSuperAdmin: false,
   myRole: cached.myRole ?? null,
   dealerId: null,
   previewRole: null,
@@ -128,7 +130,7 @@ export function clearUiRightsCache() {
   } catch {
     /* ignore */
   }
-  setState({ myRules: [], allRules: [], roles: [], canManage: false, myRole: null, loaded: false });
+  setState({ myRules: [], allRules: [], roles: [], canManage: false, isSuperAdmin: false, myRole: null, loaded: false });
 }
 
 export async function loadMyUiRules() {
@@ -138,6 +140,7 @@ export async function loadMyUiRules() {
     setState({
       myRules: res.rules ?? [],
       canManage: !!res.can_manage,
+      isSuperAdmin: !!res.is_super_admin,
       myRole: res.role ?? null,
       dealerId: res.dealer_id ?? null,
       loaded: true,

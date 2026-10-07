@@ -22,6 +22,7 @@ import {
   Building2,
   UploadCloud,
   HeartPulse,
+  ClipboardList,
   Store,
   type LucideIcon,
 } from "lucide-react";
@@ -58,6 +59,7 @@ export const NAV_ITEMS: NavItem[] = [
 export const SECONDARY_NAV_ITEMS: NavItem[] = [
   // { to: "/integrations", label: "Integrations", icon: Plug },
   { to: "/users", label: "Users", icon: Shield, keywords: "roles rights staff" },
+  { to: "/sops", label: "SOP", icon: ClipboardList, keywords: "problem solution procedure" },
   { to: "/settings", label: "Settings", icon: Settings, keywords: "profile password company" },
 ];
 
