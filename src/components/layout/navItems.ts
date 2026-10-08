@@ -23,6 +23,7 @@ import {
   UploadCloud,
   HeartPulse,
   ClipboardList,
+  ListChecks,
   Store,
   type LucideIcon,
 } from "lucide-react";
@@ -46,6 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/fillers", label: "Fillers", icon: MessageSquareText },
   { to: "/knowledge", label: "Knowledge Base", icon: BookOpen, keywords: "kb documents rag" },
   { to: "/voice", label: "AI Voice Calls", icon: PhoneCall, keywords: "live calls dial" },
+  { to: "/call-queue", label: "Today's Calls", icon: ListChecks, keywords: "queue list who will be called schedule today dialer" },
   // { to: "/whatsapp", label: "WhatsApp", icon: MessageSquare },
   { to: "/appointments", label: "Appointments", icon: CalendarDays, keywords: "bookings slots calendar" },
   { to: "/visits", label: "Showroom Visits", icon: Store, keywords: "cre visit reconciliation" },

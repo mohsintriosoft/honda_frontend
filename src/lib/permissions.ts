@@ -83,6 +83,7 @@ const ROUTE_PERMS: Record<string, PermCode[] | null> = {
   "/users": ["users.view", "users.manage"], // + super admins (see canAccessPath)
   "/settings": null,
   "/sops": null, // super admins only -- see canAccessPath
+  "/call-queue": null, // super admins only -- see canAccessPath
 };
 
 function matchRoute(path: string): string | undefined {
@@ -98,6 +99,7 @@ export function canAccessPath(path: string): boolean {
   const needed = ROUTE_PERMS[key];
   if (key === "/users" && isSuperAdmin()) return true; // Roles & rights / UI rights
   if (key === "/sops") return isStrictSuperAdmin(); // SOP: HEALTH_BALANCE_STAFF_IDS only
+  if (key === "/call-queue") return isStrictSuperAdmin(); // Today's Calls: HEALTH_BALANCE_STAFF_IDS only
   return needed === null || hasPerm(...needed);
 }
 

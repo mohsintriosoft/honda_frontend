@@ -40,6 +40,7 @@ import SegmentDetails from "./routes/SegmentDetails";
 import Voice from "./routes/Voice";
 import Health from "./routes/Health";
 import Sops from "./routes/Sops";
+import CallQueue from "./routes/CallQueue";
 import Callbacks from "./routes/Callbacks";
 import Login from "./routes/login";
 import Dashboard from "./routes/Dashboard";
@@ -231,6 +232,7 @@ export default function App() {
           {/* ================= HEALTH ================= */}
           <Route path="/health" element={<Health />} />
           <Route path="/sops" element={<Sops />} />
+          <Route path="/call-queue" element={<CallQueue />} />
         </Route>
 
         {/* 404 */}

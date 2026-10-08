@@ -221,6 +221,10 @@ const get_call_stats = APL_LINK + "api/call-stats/";
 // SOP page (super admins only) -- views_sop.py
 const get_sops = APL_LINK + "api/sops/";
 const sop_url = (id) => `${APL_LINK}api/sops/${id}/`;
+// Today's Calls page (super admins only)
+const get_call_queue = APL_LINK + "api/call-queue/";
+const post_call_queue_remove = APL_LINK + "api/call-queue/remove/";
+const post_call_queue_restore = APL_LINK + "api/call-queue/restore/";
 const get_my_ui_rules = APL_LINK + "api/ui-rules/";
 const get_all_ui_rules = APL_LINK + "api/ui-rules/all/";
 const post_ui_rule = APL_LINK + "api/ui-rules/all/";
@@ -1066,6 +1070,9 @@ export {
   get_call_stats,
   get_sops,
   sop_url,
+  get_call_queue,
+  post_call_queue_remove,
+  post_call_queue_restore,
   get_my_ui_rules,
   get_all_ui_rules,
   post_ui_rule,
