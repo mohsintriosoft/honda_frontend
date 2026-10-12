@@ -965,7 +965,7 @@ export default function RecordingsPage() {
                     <TableRow key={r.id} className="cursor-pointer" onClick={() => setOpen(r)}>
                       <TableCell>
                         <div className="font-medium">{r.customer}</div>
-                        <div className="text-xs text-muted-foreground font-mono">{r.file}</div>
+                        {/* <div className="text-xs text-muted-foreground font-mono">{r.file}</div> */}
                       </TableCell>
 
                       <TableCell>
