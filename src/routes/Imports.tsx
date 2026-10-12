@@ -796,7 +796,7 @@ export default function Imports() {
                                         <TableHead className="text-right">Unmatched</TableHead>
                                         <TableHead>Status</TableHead>
                                         <TableHead>Reconciliation</TableHead>
-                                        <TableHead>Uploaded</TableHead>
+                                        {/* <TableHead>Uploaded</TableHead> */}
                                         <TableHead className="w-8" />
                                     </TableRow>
                                 </TableHeader>
@@ -878,7 +878,7 @@ export default function Imports() {
                                                 <TableCell>
                                                     <ReconcileBadge row={row} />
                                                 </TableCell>
-                                                <TableCell className="text-muted-foreground whitespace-nowrap">
+                                                {/* <TableCell className="text-muted-foreground whitespace-nowrap">
                                                     {row.created_at
                                                         ? new Date(row.created_at).toLocaleString(undefined, {
                                                             day: "2-digit",
@@ -887,7 +887,7 @@ export default function Imports() {
                                                             minute: "2-digit",
                                                         })
                                                         : "—"}
-                                                </TableCell>
+                                                </TableCell> */}
                                                 <TableCell onClick={(e) => e.stopPropagation()}>
                                                     <div className="flex items-center justify-end gap-1">
                                                         {canDeleteImport(row.status) && (

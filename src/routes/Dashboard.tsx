@@ -248,8 +248,11 @@ function DashboardPage() {
 
           <KpiCard
             label="Workshop Conversion"
-            value={formatPercent(k.workshopConversion, 1)}
+            value={
+              k.workshopConversion == null ? "0%" : formatPercent(k.workshopConversion, 1)
+            }
             icon={<Activity className="size-4" />}
+            hint="arrived ÷ past appointments"
           />
         </div>
 

@@ -647,7 +647,7 @@ export default function AnalyticsPage() {
               /> */}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            {/* <div className="grid gap-3 sm:grid-cols-2">
               <Kpi
                 label="Total call cost"
                 value={rupees(k.cost, 2)}
@@ -662,7 +662,7 @@ export default function AnalyticsPage() {
                 sub={`${rupees(k.cost_per_connected_call, 2)} per connected call`}
                 delta={<Delta now={k.cost_per_call} before={p.cost_per_call} lowerIsBetter />}
               />
-            </div>
+            </div> */}
 
             {data.workshop && data.workshop.arrivals > 0 && <WorkshopSection w={data.workshop} />}
 
